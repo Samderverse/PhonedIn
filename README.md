@@ -1,14 +1,14 @@
 # Phoned In
 
-Replies for when you can't be bothered. Keep a chat for each person who never stops texting, paste their messages in, and get replies that fit the conversation, the person and the way you text. Copy one back into WhatsApp. Free, works offline, and nothing leaves your phone.
+Replies for when you can't be bothered. Keep a chat for each person who never stops texting, paste their messages in, and get replies that fit the conversation, the person and the way you text. Copy one back into your messagin app. Free, works offline, and nothing leaves your phone.
 
 **Open it:** https://Samderverse.github.io/PhonedIn/
 
 ## How it works
 
 1. **Add a person**, or **import your WhatsApp chat** with them.
-2. In WhatsApp, copy their latest message. In Phoned In, open their chat and tap **Paste their message**. Paste a few in a row if they've sent several.
-3. Three replies appear. Tap one to copy it, then paste it into WhatsApp. **Shuffle** gives three more.
+2. In your messagin app, copy their latest message. In Phoned In, open their chat and tap **Paste their message**. Paste a few in a row if they've sent several.
+3. Three replies appear. Tap one to copy it, then paste it into your messaging app. **Shuffle** gives three more.
 4. **⚡ Lazy mode** does it in one tap: it pastes their message and copies a minimal reply straight away.
 
 The chat on screen mirrors the real one, so replies take the whole conversation into account.
