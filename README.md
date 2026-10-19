@@ -2,7 +2,7 @@
 
 Replies for when you can't be bothered. Keep a chat for each person who never stops texting, paste their messages in, and get replies that fit the conversation, the person and the way you text. Copy one back into WhatsApp. Free, works offline, and nothing leaves your phone.
 
-**Open it:** https://YOUR-GITHUB-NAME.github.io/PhonedIn/
+**Open it:** https://Samderverse.github.io/PhonedIn/
 
 ## How it works
 
