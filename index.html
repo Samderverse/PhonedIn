@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Phoned In</title>
+<meta name="description" content="Quick replies for texts you can't be bothered to answer properly.">
+<meta name="theme-color" content="#f3f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14151a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Phoned In">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32"><path d="M6 8.5A4.5 4.5 0 0 1 10.5 4h11A4.5 4.5 0 0 1 26 8.5v8a4.5 4.5 0 0 1-4.5 4.5H14l-5.5 4.5V21A4.5 4.5 0 0 1 6 16.5z"/><text x="11.2" y="15.6">z</text><text x="16.4" y="13" class="s">z</text></svg>
+    </div>
+    <div class="title"><h1>Phoned In</h1><p>Replies for when you can't be bothered</p></div>
+    <button class="icon" id="setBtn" type="button" aria-label="Settings">
+      <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </header>
+
+  <section class="thread" aria-label="Their message">
+    <label class="from" for="msg" id="fromLabel">Their message</label>
+    <div class="bubble in">
+      <textarea id="msg" rows="3" placeholder="Paste what they sent…" autocomplete="off"></textarea>
+    </div>
+    <div class="row-btns">
+      <button class="pill" type="button" id="pasteBtn">
+        <svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/></svg>Paste</button>
+      <button class="pill ghost" type="button" id="clearBtn">Clear</button>
+      <button class="pill ghost" type="button" id="ctxBtn" aria-expanded="false">+ Earlier messages</button>
+    </div>
+    <div id="ctxWrap" hidden>
+      <label class="from" for="ctx">Earlier in the chat (optional, used by ChatGPT)</label>
+      <textarea id="ctx" class="ctx" rows="3" placeholder="Paste a few earlier messages for context"></textarea>
+    </div>
+    <p class="detect" id="detect" aria-live="polite"></p>
+  </section>
+
+  <section class="controls" aria-label="Reply settings">
+    <div class="group">
+      <h2>Tone</h2>
+      <div class="chips" role="radiogroup" aria-label="Tone" id="tones"></div>
+    </div>
+    <div class="group">
+      <h2>Goal</h2>
+      <div class="chips" role="radiogroup" aria-label="Goal" id="goals"></div>
+    </div>
+    <div class="group">
+      <h2>Effort <span class="effort-name" id="effortName"></span></h2>
+      <div class="effort" role="radiogroup" aria-label="Effort" id="efforts"></div>
+    </div>
+    <div class="toggles">
+      <label class="tog"><input type="checkbox" id="tEmoji"><span>Emoji</span></label>
+      <label class="tog"><input type="checkbox" id="tSorry"><span>“Sorry, just seen this”</span></label>
+      <label class="tog"><input type="checkbox" id="tKiss"><span>Add an x</span></label>
+      <label class="tog"><input type="checkbox" id="tLower"><span>all lowercase</span></label>
+    </div>
+  </section>
+
+  <button class="go" type="button" id="goBtn">Get replies</button>
+
+  <section class="results" id="results" aria-live="polite" hidden>
+    <div class="results-head"><h2>Tap one to copy</h2><button class="pill ghost" type="button" id="shuffleBtn">
+      <svg viewBox="0 0 24 24"><path d="M3 7h3.5c4 0 6 10 10 10H21M3 17h3.5c1.6 0 2.8-1.6 3.8-3.6M14 10.2C15 8.4 16 7 17.5 7H21M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>Shuffle</button></div>
+    <div class="banner" id="banner" hidden></div>
+    <div class="replies" id="replies"></div>
+  </section>
+
+  <section class="gpt" aria-labelledby="gptTitle">
+    <h2 id="gptTitle">Needs a proper answer?</h2>
+    <p>Send it to ChatGPT with your tone, goal and style already written in. Works with a free account.</p>
+    <div class="row-btns">
+      <a class="pill solid" id="gptBtn" href="https://chatgpt.com/" target="_blank" rel="noopener">Ask ChatGPT</a>
+      <button class="pill" type="button" id="gptCopy">Copy request</button>
+    </div>
+    <p class="fine">If ChatGPT opens without your message filled in, tap Copy request and paste it into ChatGPT.</p>
+  </section>
+</main>
+
+<div class="modal" id="settings" hidden>
+  <div class="scrim" data-close></div>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="card-head"><h2 id="setTitle">Settings</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <label class="field"><span>Their name</span><input id="sName" maxlength="30" placeholder="Optional, e.g. Dave" autocomplete="off"></label>
+    <p class="fine">Used now and then in replies (“hey Dave”). Everything stays on this phone.</p>
+    <label class="field"><span>How you usually text</span><textarea id="sStyle" rows="3" maxlength="400" placeholder="Optional, e.g. short messages, says ‘mate’ a lot, never uses full stops"></textarea></label>
+    <p class="fine">Only sent to ChatGPT, to make its replies sound like you.</p>
+    <p class="fine">Phoned In v1.0 · Replies are written on your phone. Nothing is sent anywhere unless you tap Ask ChatGPT.</p>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+</script>
+</body>
+</html>
