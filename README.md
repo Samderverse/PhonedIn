@@ -1,16 +1,16 @@
 # Phoned In
 
-Replies for when you can't be bothered. Paste a text from someone who always wants to chat, pick a tone, and get three ready-made replies to copy back into WhatsApp. Free, works offline, and nothing leaves your phone.
+Replies for when you can't be bothered. Paste a text from someone who always wants to chat, pick a tone, and get three ready-made replies to copy back into your messaging app. Free, works offline, and nothing leaves your phone.
 
 **Open it:** https://YOUR-GITHUB-NAME.github.io/PhonedIn/
 
 ## How it works
 
-1. Copy their message in WhatsApp, open Phoned In and tap **Paste**.
+1. Copy their message, open Phoned In and tap **Paste**.
 2. The app reads what kind of message it is (a hello, "how are you?", a question, "did you see…?", plans, good news, a moan, a "you there??" chaser, a link or photo, a thank you, something funny, or an essay).
 3. Pick a **tone** (Warm, Chill, Dry, Excited, Busy, Cheeky), a **goal** (Keep it going, Wind it down, Buy time, Change the subject) and an **effort** level (Minimal, Normal, Proper effort).
 4. Optional extras: emoji, a "sorry, just seen this" opener, a kiss, all lowercase.
-5. Tap **Get replies**, tap one to copy it, and paste it into WhatsApp. **Shuffle** gives three more.
+5. Tap **Get replies**, tap one to copy it, and paste it into your messaging app. **Shuffle** gives three more.
 
 Replies come from a hand-written bank on the phone, so they're instant and free. They react to the type of message, not its exact words.
 
