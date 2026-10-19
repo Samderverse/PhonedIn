@@ -1,7 +1,7 @@
 /* Phoned In service worker: makes the app open instantly and work with no signal.
    When you update any app file, bump VERSION so phones pick up the new copy. */
-const VERSION = 'pi-v1';
-const FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
+const VERSION = 'pi-v2';
+const FILES = ['./', './index.html', './styles.css', './words.js', './engine.js', './importer.js', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -1,7 +1,7 @@
 {
   "name": "Phoned In",
   "short_name": "Phoned In",
-  "description": "Quick replies for texts you can't be bothered to answer properly.",
+  "description": "Quick, context-aware replies for texts you can't be bothered to answer properly.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

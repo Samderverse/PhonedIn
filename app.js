@@ -1,422 +1,531 @@
-/* Phoned In: quick replies for texts you can't be bothered to answer properly.
-   Everything runs on the phone. The only thing that leaves it is the optional "Ask ChatGPT" link. */
+/* Phoned In v2: screens and storage. The reply logic lives in engine.js, chat import in importer.js. */
 (() => {
 'use strict';
-
+const PI = window.PI;
 const $ = s => document.querySelector(s);
-const store = {
-  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
-};
-const pick = a => a[Math.floor(Math.random() * a.length)];
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const MAX_THREAD = 300;
+const RELS = [['friend', 'Friend'], ['partner', 'Partner'], ['family', 'Family'], ['work', 'Work'], ['other', 'Other']];
 
-/* ---------- Options ---------- */
-const TONES = [
-  ['warm', 'Warm'], ['chill', 'Chill'], ['dry', 'Dry'], ['excited', 'Excited'], ['busy', 'Busy'], ['cheeky', 'Cheeky']
-];
-const GOALS = [
-  ['keep', 'Keep it going'], ['wind', 'Wind it down'], ['time', 'Buy time'], ['subject', 'Change the subject']
-];
-const EFFORTS = [
-  [1, 'Minimal', 'a word or two'], [2, 'Normal', 'a line or two'], [3, 'Proper effort', 'a bit more']
-];
+/* ---------- Storage ---------- */
+const KEY = 'pi2';
+function load() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (d && Array.isArray(d.people)) return d;
+  d = { v: 2, people: [], style: null, manualStyle: '', you: '' };
+  // Bring across v1 settings, if any
+  try {
+    const oldName = JSON.parse(localStorage.getItem('pi_name') || '""'), oldStyle = JSON.parse(localStorage.getItem('pi_style') || '""');
+    const oldOpts = JSON.parse(localStorage.getItem('pi_opts') || 'null');
+    if (oldStyle) d.manualStyle = oldStyle;
+    if (oldName) d.people.push(newPerson(oldName, 'friend', oldOpts ? Object.assign(PI.defaultSettings(), oldOpts, { swear: 0 }) : null));
+  } catch (e) {}
+  return d;
+}
+let db = null;
+db = load();
+let saveT;
+function save(now) {
+  clearTimeout(saveT);
+  const go = () => {
+    db.people.forEach(p => { if (p.thread.length > MAX_THREAD) p.thread = p.thread.slice(-MAX_THREAD); });
+    try { localStorage.setItem(KEY, JSON.stringify(db)); }
+    catch (e) {
+      db.people.forEach(p => { p.thread = p.thread.slice(-150); });
+      try { localStorage.setItem(KEY, JSON.stringify(db)); toast('Storage was full, so older messages were trimmed'); } catch (e2) { toast('Couldn’t save: this phone’s storage is full'); }
+    }
+  };
+  if (now) go(); else saveT = setTimeout(go, 200);
+}
+window.addEventListener('pagehide', () => save(true));
+function newPerson(name, rel, settings) {
+  return { id: uid(), name: String(name).trim().slice(0, 30), rel: rel || 'friend', created: Date.now(), settings: settings || PI.settingsFromStyle(db && db.style),
+           cards: [], askAbout: [], jokes: [], ignore: [], thread: [], seen: {}, queue: [] };
+}
+const person = id => db.people.find(p => p.id === id);
+let cur = null; // current person
 
-/* ---------- Reading their message ---------- */
-const RX = {
-  serious: /\b(passed away|died|funeral|hospital|a ?& ?e\b|cancer|diagnos|miscarr|depress|panic attack|anxiety attack|suicid|self.?harm|can'?t cope|cannot cope|broke up|broken up|dumped me|split up|divorc|lost my job|made redundant|got sacked|been sacked|accident|in pieces|heartbroken)/i,
-  needy: /(\byou there\b|\bhello+\s*\?|^\W*\?+\W*$|\bignoring me\b|\banswer me\b|\bwhy (aren'?t|are ?n'?t|r) (you|u) (replying|answering|texting)|\bhelloo+|\bhelo+\b|\bhey+\s*\?+|\boi+\b|\bearth to\b|\bwhere (are|r) (you|u)\b)/i,
-  bad: /\b(sad|upset|awful|terrible|rubbish day|bad day|rough day|shit day|crap day|worst|fed up|so tired|knackered|exhausted|shattered|stressed|stressful|ill\b|sick\b|poorly|unwell|cold\b|flu\b|covid|headache|migraine|crying|cried|annoyed|fuming|raging|hate (my|this|it)|gutted|nightmare|ugh+|ffs|can'?t be bothered)/i,
-  good: /\b(got the job|passed|i got in|engaged|pregnant|promot|good news|great news|guess what|so happy|so excited|amazing news|we won|i won|finally did it|new job|new house|got the keys|booked|smashed it|nailed it)\b|!!/i,
-  plans: /\b(tonight|tomorrow|tmrw|tmw|this weekend|the weekend|next week|saturday|sunday|friday|monday|tuesday|wednesday|thursday|fancy|are you free|you free|free on|meet up|meetup|catch up|pub\b|drink|drinks|coffee|lunch|dinner|tea\b|come over|come round|pop round|plans\b|going out|night out|cinema|gig\b)/i,
-  seen: /\b(did|have|has) (you|u|ya) (see|seen|watch|watched|hear|heard|catch|caught|read)\b|\bdid (you|u) know\b/i,
-  howareyou: /\b(how are (you|u)|how r (u|you)|how('?s| is) (it going|things|life|you|ur day|your day)|you (ok|alright|good)\b|u (ok|alright|good)\b|wyd\b|what (are )?(you|u) up to|what('?s| is) up|wassup|sup\b|how have you been|how('?ve| have) (you|u) been)/i,
-  photo: /(\bhttps?:\/\/|\bwww\.|image omitted|video omitted|photo omitted|sticker omitted|gif omitted|\btiktok|\binstagram|\breel\b|\blook at (this|these)|\bcheck (this|it) out|\bseen this|\bwatch this|\[photo\]|\[image\])/i,
-  thanks: /\b(thanks|thank you|thank u|ty\b|cheers|appreciate it|you'?re the best|ur the best)\b/i,
-  funny: /(\bhaha|\blol\b|\blmao|\blmfao|\brofl|😂|🤣|💀|\bdead\b|\bcrying\b(?=.*(😂|🤣|lol|haha)))/i,
-  greeting: /^\s*(hi+|hey+|hiya|heya|hello|hellooo*|alright|morning|good morning|evening|yo+|oi oi)\b[\s!.,]*\S{0,20}\s*$/i,
-  question: /\?\s*$|\?\s|^\s*(who|what|when|where|why|how|do|did|does|are|is|can|could|will|would|should|have|has|was|were|any)\b/i
-};
-const LABELS = {
-  serious: 'something serious', needy: 'a "you there?" chaser', bad: 'a moan or bad news', good: 'good news', plans: 'plans',
-  howareyou: 'a "how are you?"', photo: 'a link or photo', thanks: 'a thank you', funny: 'something funny', greeting: 'a hello',
-  question: 'a question', seen: 'a "did you see…?"', long: 'an essay', default: 'general chat'
-};
-function detect(text) {
-  const t = text.trim();
-  if (!t) return null;
-  if (RX.serious.test(t)) return 'serious';
-  if (RX.needy.test(t)) return 'needy';
-  if (RX.bad.test(t)) return 'bad';
-  if (RX.good.test(t)) return 'good';
-  if (RX.seen.test(t)) return 'seen';
-  if (RX.plans.test(t)) return 'plans';
-  if (RX.howareyou.test(t)) return 'howareyou';
-  if (RX.photo.test(t)) return 'photo';
-  if (RX.thanks.test(t)) return 'thanks';
-  if (RX.funny.test(t)) return 'funny';
-  if (t.length > 280) return 'long';
-  if (RX.greeting.test(t)) return 'greeting';
-  if (RX.question.test(t)) return 'question';
-  return 'default';
+/* ---------- Small helpers ---------- */
+function hue(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+function avatar(p, el) { el.textContent = (p.name || '?').trim().charAt(0).toUpperCase(); el.style.background = `hsl(${hue(p.name)} 52% 50%)`; }
+const fmtTime = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+function fmtDay(t) {
+  const d = new Date(t), today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  if (diff === 0) return 'Today'; if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-GB', diff < 7 ? { weekday: 'long' } : { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 }
+function fmtWhen(t) { const day = fmtDay(t); return day === 'Today' ? fmtTime(t) : day; }
 
-/* ---------- The reply bank ---------- */
-// {n} becomes " Dave" when you've set their name, or nothing when you haven't
-const CORE = {
-  greeting: {
-    warm: ['hey{n}! good to hear from you', 'hiya{n}! how are you doing?', 'ah hello{n}!'],
-    chill: ['hey{n}', 'alright{n}', 'hiya', 'heya{n}'],
-    dry: ['hello', 'yes, hi', 'greetings', 'oh, hello'],
-    excited: ['HEY{n}!!', 'omg hiya!!', 'hello hello!'],
-    busy: ['hey{n}, bit of a manic one today', 'hiya, can’t chat long'],
-    cheeky: ['oh look who it is', 'well well well{n}', 'to what do I owe the pleasure?']
-  },
-  howareyou: {
-    warm: ['I’m good thanks! how are you doing?', 'not bad at all, how about you?', 'yeah really good thanks, you?'],
-    chill: ['yeah not bad, you?', 'all good here, you?', 'can’t complain, you?', 'same old, you?'],
-    dry: ['alive', 'surviving', 'fine. you?', 'functioning, mostly'],
-    excited: ['really good actually!! you?', 'honestly great, how are YOU?'],
-    busy: ['good but swamped, you?', 'all good, just mad busy', 'not bad, bit hectic'],
-    cheeky: ['better now you’ve messaged', 'living the dream, obviously', 'thriving, as always']
-  },
-  question: {
-    warm: ['ooh good question, let me have a think', 'hmm not sure, what do you reckon?', 'ah good question!'],
-    chill: ['hmm not sure tbh', 'good question', 'honestly no idea', 'hmm, could be'],
-    dry: ['unclear', 'no comment', 'the jury’s still out', 'hard to say'],
-    excited: ['ooh good question!!', 'hmm let me think about that one!'],
-    busy: ['will have to get back to you on that', 'can I answer that one later?'],
-    cheeky: ['that’s classified', 'depends who’s asking', 'I could tell you, but then…']
-  },
-  seen: {
-    warm: ['no, I missed it! was it good?', 'ooh no, tell me about it', 'not yet! any good?'],
-    chill: ['nah missed it, any good?', 'no, was it good?', 'not yet, worth it?'],
-    dry: ['I have not. I suspect I’ll survive', 'no. should I have?', 'missed it, tragically'],
-    excited: ['no!! was it good?!', 'not yet, tell me everything!'],
-    busy: ['not yet, will have a look later', 'missed it, been flat out'],
-    cheeky: ['no, I have a life', 'I’ll pretend I did']
-  },
-  plans: {
-    warm: ['that sounds lovely, let me check what I’ve got on', 'would be nice to catch up, let me have a look'],
-    chill: ['could do, let me see', 'maybe, what time were you thinking?', 'possibly, let me check'],
-    dry: ['I’ll consult the diary', 'potentially', 'noted. pending review'],
-    excited: ['ooh that sounds fun! let me check I’m free', 'ooh go on then, let me check my diary'],
-    busy: ['not sure I can this time, it’s a bit hectic', 'let me check what I’ve got on and get back to you'],
-    cheeky: ['only if you’re buying', 'depends, is there food involved?', 'I’ll check my very busy social calendar']
-  },
-  good: {
-    warm: ['that’s brilliant, so pleased for you!', 'aw amazing news, well done!', 'that’s so good to hear!'],
-    chill: ['ah nice one!', 'love that', 'get in!', 'oh nice!'],
-    dry: ['congrats, I’ll allow it', 'well done. obviously', 'not bad, not bad'],
-    excited: ['NO WAY that’s amazing!!', 'omg congratulations!!!', 'yesss that’s brilliant!!'],
-    busy: ['amazing, well done!', 'brilliant news, congrats!'],
-    cheeky: ['about time something went your way', 'look at you go', 'who even are you'],
-  },
-  bad: {
-    warm: ['aw no, sorry you’re having a rough time', 'oh no, that sounds rubbish. you ok?', 'aw that’s not nice, hope you’re ok'],
-    chill: ['ah that’s rubbish', 'aw no, hope it gets better', 'ugh, that sucks'],
-    dry: ['that’s grim', 'ugh, rough', 'sounds bleak'],
-    excited: ['aw no, that’s rubbish! hope it picks up', 'oh no! sending hugs'],
-    busy: ['aw that’s rubbish, hope you’re ok', 'sorry to hear that, hope it picks up'],
-    cheeky: ['oh no, need me to fight someone?', 'sending emergency biscuits', 'that calls for a takeaway']
-  },
-  serious: { // tone is ignored for these
-    warm: ['oh no, I’m really sorry. are you ok?', 'that’s awful, I’m so sorry. I’m here if you want to talk', 'I’m so sorry, that’s really hard. do you want to chat later?', 'oh mate, I’m really sorry. how are you doing?']
-  },
-  needy: {
-    warm: ['sorry! here now, what’s up?', 'sorry, been a bit all over the place today', 'sorry, I’m here!'],
-    chill: ['here, sorry!', 'sorry, was busy. what’s up?', 'yep here'],
-    dry: ['I live', 'yes, I’m here', 'still alive, don’t worry'],
-    excited: ['I’m here!! sorry!', 'sorry sorry! what’s happening?'],
-    busy: ['sorry, mad day', 'sorry, been flat out today'],
-    cheeky: ['patience is a virtue', 'missed me that much?', 'I was gone for five minutes']
-  },
-  photo: {
-    warm: ['aw that’s lovely', 'ah I love that', 'that’s brilliant'],
-    chill: ['ha nice', 'love it', 'class', 'quality'],
-    dry: ['I’ve seen it', 'noted', 'yes, I saw'],
-    excited: ['omg I love this!!', 'this is amazing'],
-    busy: ['ha brilliant, will look properly later', 'love it'],
-    cheeky: ['frame it', 'content.', 'you’ve outdone yourself']
-  },
-  thanks: {
-    warm: ['any time!', 'no problem at all', 'of course, any time'],
-    chill: ['no worries', 'no probs', 'nw'],
-    dry: ['you’re welcome, I suppose', 'I accept payment in biscuits'],
-    excited: ['of course!!', 'any time!!'],
-    busy: ['no problem!', 'no worries!'],
-    cheeky: ['you owe me one', 'I’ll add it to your tab']
-  },
-  funny: {
-    warm: ['haha love that', 'that’s brilliant', 'haha you’re funny'],
-    chill: ['haha', 'dead', 'ha love it', 'that’s class'],
-    dry: ['hilarious', 'I laughed. internally', 'a solid 6/10'],
-    excited: ['HAHA stop', 'I’m crying', 'this is so funny'],
-    busy: ['haha brilliant'],
-    cheeky: ['you think you’re funny don’t you', 'I’ll allow it']
-  },
-  long: {
-    warm: ['oh wow, that’s a lot. how are you feeling about it all?', 'sounds like a lot going on, you ok?'],
-    chill: ['wow, that’s a lot', 'blimey, what a saga', 'that’s mad'],
-    dry: ['that’s a novel', 'I’ll wait for the audiobook', 'chapter one was gripping'],
-    excited: ['omg that’s so much!!', 'wow, what a story!'],
-    busy: ['sorry, will read this properly later!', 'that’s a lot, can we chat properly later?'],
-    cheeky: ['tldr?', 'this needs chapters', 'I’ve made a brew for this one']
-  },
-  default: {
-    warm: ['aw that’s nice', 'ah fair enough', 'aw love that'],
-    chill: ['ah fair', 'nice one', 'ha yeah', 'fair enough', 'ah right'],
-    dry: ['ok', 'noted', 'riveting', 'fascinating'],
-    excited: ['ooh!', 'love that!', 'oh nice!!'],
-    busy: ['ah nice, will message properly later', 'ah fair enough'],
-    cheeky: ['bold of you', 'interesting choice', 'if you say so']
-  }
-};
-const MINIMAL = {
-  greeting: ['hey', 'hiya', 'alright', 'hi'],
-  howareyou: ['good u?', 'not bad, you?', 'fine ta', 'yeah good'],
-  question: ['hmm not sure', 'maybe', 'dunno tbh', 'possibly'],
-  seen: ['nah, any good?', 'missed it', 'not yet', 'no?'],
-  plans: ['maybe!', 'could do', 'will see', 'possibly'],
-  good: ['nice one!', 'amazing', 'congrats!', 'get in'],
-  bad: ['aw no', 'ah rubbish', 'oh no', 'ugh'],
-  needy: ['here!', 'sorry!', 'alive', 'yep'],
-  photo: ['ha love', 'class', 'nice', 'love it'],
-  thanks: ['nw', 'no probs', 'anytime', 'np'],
-  funny: ['haha', 'dead', 'ha', 'lol'],
-  long: ['wow', 'blimey', 'no way', 'mad'],
-  default: ['ha yeah', 'nice', 'fair', 'ah right', 'ok']
-};
-const GOAL = {
-  keep: {
-    warm: ['how’s your week been?', 'what have you been up to?', 'how are things with you?'],
-    chill: ['what you up to?', 'anything happening your end?', 'what’s new?'],
-    dry: ['what’s new in your world', 'how’s life treating you'],
-    excited: ['what else is new?!', 'tell me everything!', 'what are you up to this week?!'],
-    busy: ['how’s things with you?'],
-    cheeky: ['anyway, what trouble have you been getting into?', 'what’s the gossip?']
-  },
-  wind: {
-    warm: ['anyway, I’d better crack on. speak soon!', 'gonna get my head down now, chat tomorrow', 'right, I’m off, speak soon'],
-    chill: ['anyway, catch you later', 'right, I’m off. speak soon', 'gonna crash, laters'],
-    dry: ['anyway. that’s enough socialising for one day', 'right, signing off'],
-    excited: ['ok gotta dash, speak soon!!', 'right I’m off, chat soon!'],
-    busy: ['gotta run, speak later!', 'need to crack on, speak soon'],
-    cheeky: ['right, I’m off before you start another essay', 'I’m logging off, try not to miss me']
-  },
-  time: {
-    warm: ['can I message you properly later?', 'let me get back to you properly tonight'],
-    chill: ['will message you later', 'speak properly later?', 'will get back to you in a bit'],
-    dry: ['I’ll get back to you. at some point'],
-    excited: ['will message properly later, promise!'],
-    busy: ['mad busy right now, will reply properly later', 'swamped, will message tonight'],
-    cheeky: ['I’ll pencil you in for later', 'my people will get back to your people']
-  },
-  subject: {
-    warm: ['anyway, how’s work been?', 'seen anything good on telly lately?', 'anyway, any plans for the weekend?'],
-    chill: ['random, but watched anything good lately?', 'anyway, how’s the week going?'],
-    dry: ['anyway. weather, eh?', 'in other news, how’s work'],
-    excited: ['ooh random, but have you got plans for the weekend?!'],
-    busy: ['anyway, how’s things?'],
-    cheeky: ['anyway, more importantly, what’s for tea?', 'anyway, enough about that. biscuits: thoughts?']
-  }
-};
-// "Proper effort" adds one of these between the reaction and the goal
-const EXTRA = {
-  warm: ['hope you’re doing ok', 'it feels like ages', 'hope the week’s been kind to you'],
-  chill: ['been a long week here', 'not much going on this end', 'been a quiet one here'],
-  dry: ['nothing to report here, obviously', 'my life remains thrilling', 'all quiet on my end'],
-  excited: ['feels like ages!', 'it’s been too long!'],
-  busy: ['it’s been non-stop here', 'work’s been mental'],
-  cheeky: ['I’ve been very busy and important', 'my social calendar is rammed, obviously']
-};
-const SORRY = ['sorry, only just seen this!', 'sorry, just seen this', 'ah sorry, phone’s been on silent', 'sorry, been a bit useless with my phone today'];
-const SHORT_GOAL = { wind: ['laters', 'speak soon', 'night!'], time: ['will message later', 'speak later'] };
-const EMOJI = {
-  warm: ['😊', '🙂', '☺️'], chill: ['👍', '😅', '🙌'], dry: ['🙃', '👀'], excited: ['🎉', '😍', '🥳'], busy: ['🙈', '😅'], cheeky: ['😏', '😜', '😉'],
-  bad: ['💛', '🫶', '🫂'], serious: ['💛'], funny: ['😂', '🤣', '💀'], good: ['🎉', '🙌', '🥳'], photo: ['😍', '🙌'], thanks: ['🙌', '😊']
-};
-const HAS_EMOJI = /\p{Extended_Pictographic}/u;
-
-/* ---------- Building replies ---------- */
-function polish(s, o) {
-  s = s.replace(/\{n\}/g, o.name ? ' ' + o.name : '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
-  if (o.lower) return s.toLowerCase();
-  // Sentence case, and a capital "I"
-  s = s.replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\bi\b/g, 'I').replace(/\bi’/g, 'I’');
-  if (o.name) s = s.replace(new RegExp('\\b' + o.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), o.name);
-  return s;
-}
-function join(parts) {
-  return parts.filter(Boolean).map((p, i, a) => (i < a.length - 1 && !/[.!?…)]$/.test(p) ? p + '.' : p)).join(' ');
-}
-function linesFor(bank, cat, tone) {
-  const c = bank[cat] || bank.default;
-  return c[tone] || c.warm || c.chill;
-}
-function buildOne(cat, o, used = new Set()) {
-  const serious = cat === 'serious';
-  const tone = serious ? 'warm' : o.tone;
-  const effort = serious ? Math.max(2, o.effort) : o.effort;
-  const goal = serious ? 'keep' : o.goal;
-  const parts = [];
-  if (o.sorry && cat !== 'needy' && !serious) parts.push(pick(SORRY));
-  if (effort === 1) {
-    const mpool = MINIMAL[cat] || MINIMAL.default, mfresh = mpool.filter(l => !used.has(l));
-    const m = pick(mfresh.length ? mfresh : mpool); used.add(m); parts.push(m);
-    if (goal === 'wind' || goal === 'time') parts.push(pick(SHORT_GOAL[goal]));
-  } else {
-    // Prefer a reaction the other suggestions haven't used, so the three options feel different
-    const pool = linesFor(CORE, cat, tone), fresh = pool.filter(l => !used.has(l));
-    const first = pick(fresh.length ? fresh : pool);
-    used.add(first); parts.push(first);
-    if (effort === 3 && !serious && !/\?$/.test(first)) parts.push(pick(EXTRA[tone] || EXTRA.chill));
-    // A "how are you" core already asks back, and serious replies don't need a chirpy follow-up
-    const asksAlready = parts.some(p => /\?$/.test(p));
-    if (!serious && !(goal === 'keep' && asksAlready)) parts.push(pick(linesFor(GOAL, goal, tone)));
-    if (serious && effort === 3) parts.push('want me to give you a ring?');
-  }
-  let s = polish(join(parts), o);
-  if (o.emoji && !HAS_EMOJI.test(s) && Math.random() < 0.8) {
-    const set = EMOJI[cat] && cat !== 'default' ? EMOJI[cat] : EMOJI[tone];
-    s += ' ' + pick(set);
-  }
-  if (o.kiss) s += ' x';
-  return s;
-}
-function buildReplies(cat, o, n = 3) {
-  const out = new Set(), used = new Set();
-  for (let i = 0; i < 40 && out.size < n; i++) out.add(buildOne(cat, o, used));
-  return [...out];
-}
-
-/* ---------- ChatGPT request ---------- */
-function gptPrompt(o) {
-  const msg = $('#msg').value.trim(), ctx = $('#ctx').value.trim(), style = store.get('pi_style', '').trim();
-  const tone = TONES.find(t => t[0] === o.tone)[1].toLowerCase();
-  const goal = { keep: 'keep the conversation going', wind: 'politely wind the conversation down', time: 'buy me some time and say I’ll reply properly later', subject: 'steer onto a different subject' }[o.goal];
-  const len = { 1: 'as short as possible, one to four words', 2: 'one short sentence or two', 3: 'two or three sentences' }[o.effort];
-  const lines = [
-    `Help me reply to a text message from ${o.name ? 'my friend ' + o.name : 'a friend'}.`,
-    ctx ? `Earlier in the chat:\n"""\n${ctx}\n"""` : '',
-    `Their latest message:\n"""\n${msg || '(paste their message here)'}\n"""`,
-    `Write 3 different replies I can copy and paste. Tone: ${tone}. Goal: ${goal}. Length: ${len}.`,
-    `Style: casual British texting, like a real person, not an assistant. ${o.lower ? 'All lowercase. ' : ''}${o.emoji ? 'An emoji is fine. ' : 'No emoji. '}${o.kiss ? 'End with an x. ' : ''}${o.sorry ? 'Start with a quick sorry for the slow reply. ' : ''}Don’t agree to plans or promise anything on my behalf.`,
-    style ? `How I usually text: ${style}` : '',
-    'If their message sounds serious or upsetting, ignore the low-effort brief and suggest kind, supportive replies instead.',
-    'Reply with just the 3 options, numbered, nothing else.'
-  ];
-  return lines.filter(Boolean).join('\n\n');
-}
-
-/* ---------- UI ---------- */
 let toastT;
-function toast(t) {
-  const el = $('#toast'); el.textContent = t; el.hidden = false;
-  clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 2000);
+function toast(text, action) {
+  $('#toastText').textContent = text;
+  const b = $('#toastAct');
+  if (action) { b.hidden = false; b.textContent = action.label; b.onclick = () => { $('#toast').hidden = true; action.fn(); }; } else b.hidden = true;
+  $('#toast').hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => { $('#toast').hidden = true; }, action ? 5000 : 2400);
 }
-async function copyText(t) {
-  try { await navigator.clipboard.writeText(t); return true; } catch (e) {
+// Called directly inside a tap, so iPhones allow it
+function copyText(t) {
+  const fallback = () => {
     const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
-    let ok = false; try { ok = document.execCommand('copy'); } catch (err) {}
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
     ta.remove(); return ok;
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t).then(() => true, () => fallback());
+  return Promise.resolve(fallback());
+}
+
+/* ---------- Views ---------- */
+function show(view) {
+  ['home', 'chat', 'profile'].forEach(v => { $('#v-' + v).hidden = v !== view; });
+  document.body.classList.toggle('locked', view === 'chat');
+  window.scrollTo(0, 0);
+}
+
+/* ---------- People list ---------- */
+function renderHome() {
+  const list = $('#people');
+  const ppl = db.people.slice().sort((a, b) => lastT(b) - lastT(a));
+  if (!ppl.length) {
+    list.innerHTML = `<div class="empty"><b>No one here yet</b>Add the person who never stops texting, or import your WhatsApp chat with them to get going faster.</div>`;
+    return;
   }
+  list.innerHTML = ppl.map(p => {
+    const last = p.thread[p.thread.length - 1];
+    const prev = last ? (last.from === 'me' ? 'You: ' : '') + last.text.replace(/\s+/g, ' ') : 'No messages yet';
+    return `<button class="person" type="button" data-id="${p.id}"><span class="av" data-av="${p.id}"></span><span class="txt"><b>${esc(p.name)}</b><span class="prev">${esc(prev)}</span></span>${last ? `<time>${esc(fmtWhen(last.t))}</time>` : ''}</button>`;
+  }).join('');
+  list.querySelectorAll('[data-av]').forEach(el => avatar(person(el.dataset.av), el));
+  list.querySelectorAll('[data-id]').forEach(b => b.onclick = () => openChat(b.dataset.id));
 }
-function radios(el, name, list, current, render) {
-  el.innerHTML = list.map(([v, label, small]) => `<label class="chip"><input type="radio" name="${name}" value="${v}"${String(v) === String(current) ? ' checked' : ''}><span>${render ? render(v, label, small) : esc(label)}</span></label>`).join('');
+const lastT = p => (p.thread.length ? p.thread[p.thread.length - 1].t : p.created);
+
+/* ---------- Chat ---------- */
+let showAll = false;
+function openChat(id) {
+  cur = person(id); if (!cur) return;
+  showAll = false; askOpen = false;
+  avatar(cur, $('#chatAv')); $('#chatName').textContent = cur.name;
+  show('chat'); renderThread(); renderDock();
 }
-const opts = () => ({
-  tone: (document.querySelector('input[name=tone]:checked') || {}).value || 'chill',
-  goal: (document.querySelector('input[name=goal]:checked') || {}).value || 'keep',
-  effort: +((document.querySelector('input[name=effort]:checked') || {}).value || 2),
-  emoji: $('#tEmoji').checked, sorry: $('#tSorry').checked, kiss: $('#tKiss').checked, lower: $('#tLower').checked,
-  name: store.get('pi_name', '').trim()
-});
-
-const saved = store.get('pi_opts', {});
-radios($('#tones'), 'tone', TONES, saved.tone || 'chill');
-radios($('#goals'), 'goal', GOALS, saved.goal || 'keep');
-radios($('#efforts'), 'effort', EFFORTS, saved.effort || 2, (v, label, small) =>
-  `<span class="bars" aria-hidden="true">${[1, 2, 3].map(i => `<i class="${i <= v ? 'on' : ''}"></i>`).join('')}</span>${esc(label)}<small>${esc(small)}</small>`);
-$('#tEmoji').checked = !!saved.emoji; $('#tSorry').checked = !!saved.sorry; $('#tKiss').checked = !!saved.kiss; $('#tLower').checked = saved.lower !== false;
-
-function saveOpts() {
-  const o = opts(); store.set('pi_opts', { tone: o.tone, goal: o.goal, effort: o.effort, emoji: o.emoji, sorry: o.sorry, kiss: o.kiss, lower: o.lower });
-  $('#effortName').textContent = '';
-  updateGpt();
-  if (!$('#results').hidden) generate();
+function renderThread() {
+  const el = $('#thread'), t = cur.thread;
+  if (!t.length) {
+    el.innerHTML = `<div class="thread-empty">Copy ${esc(cur.name)}’s latest message in WhatsApp, then tap <b>Paste their message</b>. Replies appear here.</div>`;
+    return;
+  }
+  const start = showAll ? 0 : Math.max(0, t.length - 80);
+  let html = start > 0 ? `<button class="pill ghost more" type="button" id="moreBtn">Show earlier messages</button>` : '';
+  let lastDay = '';
+  const lastMe = [...t].reverse().find(m => m.from === 'me');
+  for (let i = start; i < t.length; i++) {
+    const m = t[i], day = fmtDay(m.t);
+    if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
+    html += `<button class="msg ${m.from}" type="button" data-i="${i}">${esc(m.text)}<span class="t">${fmtTime(m.t)}${m.via === 'app' ? ' · Phoned In' : ''}</span></button>`;
+    if (m === lastMe && m.hint && Date.now() - m.t < 2 * 36e5 && i === t.length - 1) html += `<div class="hintline">${esc(m.hint)}</div>`;
+  }
+  el.innerHTML = html;
+  const more = $('#moreBtn'); if (more) more.onclick = () => { showAll = true; renderThread(); };
+  el.querySelectorAll('.msg').forEach(b => b.onclick = () => msgTools(+b.dataset.i, b));
+  el.scrollTop = el.scrollHeight;
 }
-document.querySelector('.controls').addEventListener('change', saveOpts);
-
-function updateDetect() {
-  const cat = detect($('#msg').value);
-  const name = store.get('pi_name', '').trim();
-  $('#fromLabel').textContent = name ? `${name} said` : 'Their message';
-  $('#detect').innerHTML = cat ? `Sounds like <b>${LABELS[cat]}</b>` : '';
+function msgTools(i, el) {
+  $$('.msg-tools').forEach(x => x.remove());
+  const m = cur.thread[i]; if (!m) return;
+  const tools = document.createElement('div');
+  tools.className = 'msg-tools ' + m.from;
+  tools.innerHTML = `<button class="pill" type="button" data-a="copy">Copy</button><button class="pill danger" type="button" data-a="del">Remove</button>`;
+  el.after(tools);
+  tools.querySelector('[data-a=copy]').onclick = () => { copyText(m.text); toast('Copied'); tools.remove(); };
+  tools.querySelector('[data-a=del]').onclick = () => { cur.thread.splice(i, 1); save(); renderThread(); renderDock(); };
 }
-let typing;
-$('#msg').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => { updateDetect(); updateGpt(); }, 250); });
-$('#ctx').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(updateGpt, 250); });
 
-function generate() {
-  const text = $('#msg').value;
-  if (!text.trim()) { toast('Paste their message first'); $('#msg').focus(); return; }
-  const cat = detect(text), o = opts();
-  const replies = buildReplies(cat, o);
-  const banner = $('#banner');
-  if (cat === 'serious') {
-    banner.hidden = false;
-    banner.textContent = 'This one sounds serious, so these replies ignore your settings and stay kind. It might deserve a proper chat, or a call.';
-  } else banner.hidden = true;
-  $('#replies').innerHTML = replies.map(r => `<button class="reply" type="button">${esc(r)}<span class="tag">Tap to copy</span></button>`).join('');
-  $('#replies').querySelectorAll('.reply').forEach((b, i) => b.onclick = async () => {
-    const ok = await copyText(replies[i]);
-    document.querySelectorAll('.reply').forEach(x => { x.classList.remove('copied'); x.querySelector('.tag').textContent = 'Tap to copy'; });
-    if (ok) { b.classList.add('copied'); b.querySelector('.tag').textContent = 'Copied: paste it in WhatsApp'; }
-    else toast('Couldn’t copy. Press and hold the text instead.');
+function addMessage(from, text, extra) {
+  text = String(text || '').trim(); if (!text) return null;
+  const m = Object.assign({ id: uid(), from, text, t: Date.now() }, extra || {});
+  cur.thread.push(m);
+  if (from === 'them') PI.noticeWords(cur, text, [db.you]);
+  save();
+  return m;
+}
+// Pasting several WhatsApp messages at once comes through as "[19/10/2026, 20:14] Dave: hi" lines
+function addPasted(text) {
+  const parsed = /^\s*‎?\[?\d{1,4}[\/.\-]\d{1,2}[\/.\-]\d{1,4}/.test(text) ? PI.parseChat(text) : null;
+  if (parsed && parsed.msgs.length) {
+    const you = (db.you || '').toLowerCase();
+    parsed.msgs.forEach(m => addMessage(you && m.name.toLowerCase() === you ? 'me' : 'them', m.text));
+    return parsed.msgs.length;
+  }
+  addMessage('them', text);
+  return 1;
+}
+
+let current = null; // the suggestions on screen
+function renderDock() {
+  renderAsk();
+  const tray = $('#tray');
+  const pend = PI.pending(cur);
+  if (!pend.length) { tray.hidden = true; current = null; return; }
+  current = PI.suggest(cur, db.style);
+  tray.hidden = false;
+  $('#notes').innerHTML = current.notes.map((n, k) => `<div class="note"><span>${esc(n.text)}</span>${n.action ? `<button type="button" data-k="${k}">${esc(n.action.label)}</button>` : ''}</div>`).join('');
+  $('#notes').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { cur.settings.goal = current.notes[+b.dataset.k].action.goal; save(); renderDock(); });
+  const serious = current.a.primary === 'serious';
+  $('#banner').hidden = !serious;
+  if (serious) $('#banner').textContent = 'This sounds serious, so these replies ignore your settings, skip the swearing and stay kind. It might deserve a proper chat, or a call.';
+  $('#replies').innerHTML = current.replies.map((r, k) => `<button class="reply" type="button" data-k="${k}">${esc(r.text)}<span class="tag">${esc(r.tag || 'Tap to copy')}</span></button>`).join('');
+  $('#replies').querySelectorAll('.reply').forEach(b => b.onclick = () => useReply(current.replies[+b.dataset.k].text));
+  $('#gptBtn').href = 'https://chatgpt.com/?q=' + encodeURIComponent(PI.gptPrompt(cur, db));
+}
+function useReply(text) {
+  const d = PI.delay(cur);
+  copyText(text).then(ok => {
+    const m = addMessage('me', text, { via: 'app', hint: d.text });
+    renderThread(); renderDock(); renderHomeLater();
+    toast(ok ? 'Copied: paste it in WhatsApp' : 'Saved, but copying failed. Tap the message to copy it.', { label: 'Undo', fn: () => { cur.thread = cur.thread.filter(x => x !== m); save(); renderThread(); renderDock(); } });
   });
-  $('#results').hidden = false;
 }
-$('#goBtn').onclick = () => { generate(); $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-$('#shuffleBtn').onclick = generate;
+let homeT; function renderHomeLater() { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); }
+
+$('#shuffleBtn').onclick = renderDock;
+$('#gptBtn').addEventListener('click', () => { copyText(PI.gptPrompt(cur, db)); });
+$('#ownBtn').onclick = async () => {
+  const t = await dialog({ title: 'What did you send?', text: 'Paste or type your reply so the chat stays accurate.', input: '', ok: 'Add' });
+  if (t && t.trim()) { addMessage('me', t); renderThread(); renderDock(); }
+};
+$('#chatBack').onclick = () => { renderHome(); show('home'); };
+$('#chatWho').onclick = () => openProfile();
+$('#chatTweak').onclick = () => openTweak();
 
 $('#pasteBtn').onclick = async () => {
-  try {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch (e) {}
+  if (!text || !text.trim()) { openType(); toast('Press and hold in the box, then tap Paste'); return; }
+  const n = addPasted(text);
+  renderThread(); renderDock(); renderHomeLater();
+  toast(n > 1 ? `Added ${n} messages` : 'Added');
+};
+function openType() { $('#typeRow').hidden = false; $('#typeBtn').setAttribute('aria-expanded', 'true'); setTimeout(() => $('#typeBox').focus(), 30); }
+$('#typeBtn').onclick = () => { const open = $('#typeRow').hidden; if (open) openType(); else { $('#typeRow').hidden = true; $('#typeBtn').setAttribute('aria-expanded', 'false'); } };
+$('#addThem').onclick = () => { if (!$('#typeBox').value.trim()) return; addPasted($('#typeBox').value); $('#typeBox').value = ''; $('#typeRow').hidden = true; renderThread(); renderDock(); };
+$('#addMe').onclick = () => { if (!$('#typeBox').value.trim()) return; addMessage('me', $('#typeBox').value); $('#typeBox').value = ''; $('#typeRow').hidden = true; renderThread(); renderDock(); };
+
+// Lazy mode: paste their message and copy a minimal reply in one tap
+$('#lazyBtn').onclick = () => {
+  let reply = '', d = null;
+  const work = (async () => {
     const t = await navigator.clipboard.readText();
-    if (t) { $('#msg').value = t; updateDetect(); updateGpt(); toast('Pasted'); return; }
-  } catch (e) {}
-  $('#msg').focus(); toast('Press and hold in the box, then tap Paste');
-};
-$('#clearBtn').onclick = () => { $('#msg').value = ''; $('#ctx').value = ''; $('#results').hidden = true; updateDetect(); updateGpt(); $('#msg').focus(); };
-$('#ctxBtn').onclick = () => {
-  const open = $('#ctxWrap').hidden; $('#ctxWrap').hidden = !open;
-  $('#ctxBtn').setAttribute('aria-expanded', open); $('#ctxBtn').textContent = open ? '− Earlier messages' : '+ Earlier messages';
-};
-
-function updateGpt() { $('#gptBtn').href = 'https://chatgpt.com/?q=' + encodeURIComponent(gptPrompt(opts())); }
-$('#gptBtn').addEventListener('click', e => {
-  if (!$('#msg').value.trim()) { e.preventDefault(); toast('Paste their message first'); return; }
-  updateGpt();
-  copyText(gptPrompt(opts())); // also on the clipboard, in case ChatGPT opens empty
-});
-$('#gptCopy').onclick = async () => {
-  if (!$('#msg').value.trim()) { toast('Paste their message first'); return; }
-  toast((await copyText(gptPrompt(opts()))) ? 'Copied. Paste it into ChatGPT' : 'Couldn’t copy on this phone');
+    if (!t || !t.trim()) throw new Error('empty');
+    addPasted(t);
+    d = PI.delay(cur);
+    reply = PI.lazy(cur, db.style);
+    if (!reply) throw new Error('none');
+    return new Blob([reply], { type: 'text/plain' });
+  })();
+  const done = () => { addMessage('me', reply, { via: 'app', hint: d && d.text }); renderThread(); renderDock(); renderHomeLater(); toast(`Copied “${reply}”`); };
+  if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+    navigator.clipboard.write([new ClipboardItem({ 'text/plain': work })]).then(done).catch(async () => {
+      try { await work; renderThread(); renderDock(); toast('Tap the first reply to copy it'); } catch (e) { toast('Copy their message in WhatsApp first, then tap ⚡'); }
+    });
+  } else {
+    work.then(() => { renderThread(); renderDock(); toast('Tap the first reply to copy it'); }).catch(() => toast('Copy their message in WhatsApp first, then tap ⚡'));
+  }
 };
 
-/* Settings */
-const modal = $('#settings');
-$('#setBtn').onclick = () => { $('#sName').value = store.get('pi_name', ''); $('#sStyle').value = store.get('pi_style', ''); modal.hidden = false; setTimeout(() => $('#sName').focus(), 50); };
-function closeSettings() {
-  store.set('pi_name', $('#sName').value.trim()); store.set('pi_style', $('#sStyle').value.trim());
-  modal.hidden = true; updateDetect(); updateGpt(); if (!$('#results').hidden) generate();
+/* ---------- "Who's that?" ---------- */
+let askOpen = false;
+function renderAsk() {
+  const el = $('#askCard');
+  const q = (cur.queue || [])[0];
+  if (!q) { el.hidden = true; return; }
+  el.hidden = false;
+  const name = esc(cur.name.split(' ')[0]);
+  // Kept to one line while you're replying; tap to answer
+  el.classList.toggle('compact', !askOpen);
+  if (!askOpen) {
+    el.innerHTML = `<p>${q.rel ? `${name} mentioned their <b>${esc(q.rel)}</b>` : `Who’s <b>‘${esc(q.label)}’</b>?`}${q.count > 1 ? `<small>${q.count}×</small>` : ''}</p>
+      <button class="pill solid" type="button" id="askOpen">Tell me</button><button class="xs" type="button" id="askSkip" aria-label="Not now">×</button>`;
+    $('#askOpen').onclick = () => { askOpen = true; renderAsk(); const i = el.querySelector('input:not([hidden]), [data-k]'); if (i) i.focus(); };
+    $('#askSkip').onclick = () => doneAsk(q);
+    return;
+  }
+  if (q.rel) {
+    el.innerHTML = `<p>${name} mentioned their <b>${esc(q.rel)}</b>. Do you know their name?</p>
+      <div class="inline"><input id="askName" placeholder="Name (optional)" maxlength="30" autocomplete="off"><button class="pill solid" type="button" id="askSave">Save</button></div>
+      <div class="row-btns"><button class="link" type="button" id="askSkip">Not now</button><button class="link" type="button" id="askNever">Don’t ask about this</button></div>`;
+    $('#askSave').onclick = () => {
+      const nm = $('#askName').value.trim();
+      cur.cards.push({ id: uid(), label: nm || `their ${q.rel}`, kind: /^(dog|cat)$/.test(q.rel) ? 'pet' : 'person', note: q.rel, rel: q.rel });
+      doneAsk(q, `Saved to ${cur.name.split(' ')[0]}’s profile`);
+    };
+  } else {
+    el.innerHTML = `<p>Who or what is <b>‘${esc(q.label)}’</b>?${q.count > 1 ? `<small>mentioned ${q.count} times</small>` : ''}</p>
+      <div class="row-btns" id="askKinds">${PI.KINDS.map(([k, l]) => `<button class="pill" type="button" data-k="${k}">${l}</button>`).join('')}</div>
+      <div class="inline" id="askNoteRow" hidden><input id="askNote" placeholder="A few words, e.g. his brother" maxlength="60" autocomplete="off"><button class="pill solid" type="button" id="askSave">Save</button></div>
+      <div class="row-btns"><button class="link" type="button" id="askSkip">Not now</button><button class="link" type="button" id="askNever">Don’t ask about this</button></div>`;
+    let kind = null;
+    el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+      kind = b.dataset.k; el.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('solid', x === b));
+      $('#askNoteRow').hidden = false; $('#askNote').placeholder = { person: 'A few words, e.g. his brother', pet: 'e.g. her dog', place: 'e.g. their local pub', thing: 'e.g. his football team' }[kind];
+      $('#askNote').focus();
+    });
+    $('#askSave').onclick = () => {
+      cur.cards.push({ id: uid(), label: q.label.charAt(0).toUpperCase() + q.label.slice(1), kind: kind || 'thing', note: $('#askNote').value.trim() });
+      doneAsk(q, `Saved to ${cur.name.split(' ')[0]}’s profile`);
+    };
+  }
+  $('#askSkip').onclick = () => doneAsk(q);
+  $('#askNever').onclick = () => { cur.ignore.push(q.key); doneAsk(q, 'Won’t ask about that again'); };
 }
-modal.addEventListener('click', e => { if (e.target.closest('[data-close]')) closeSettings(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) closeSettings(); });
+function doneAsk(q, msg) {
+  askOpen = false;
+  cur.queue = cur.queue.filter(x => x.key !== q.key);
+  if (msg) toast(msg);
+  save(); renderDock();
+}
 
-updateDetect(); updateGpt();
+/* ---------- Reply settings (shared by the chat sheet and the profile) ---------- */
+function renderControls(el, p, onChange) {
+  const s = p.settings, pre = 'c' + Math.random().toString(36).slice(2, 6);
+  const radios = (name, list, val, fmt) => list.map(([v, l, sm]) => `<label class="chip"><input type="radio" name="${pre}-${name}" value="${v}"${String(v) === String(val) ? ' checked' : ''}><span>${fmt ? fmt(v, l, sm) : esc(l)}</span></label>`).join('');
+  const bars = (v, n) => `<span class="bars" aria-hidden="true">${[1, 2, 3].map(i => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span>`;
+  el.innerHTML = `<div class="controls">
+    <div class="group"><h3 class="lbl">Tone</h3><div class="chips">${radios('tone', PI.TONES, s.tone)}</div></div>
+    <div class="group"><h3 class="lbl">Goal</h3><div class="chips">${radios('goal', PI.GOALS, s.goal)}</div></div>
+    <div class="group"><h3 class="lbl">Effort</h3><div class="grid3">${radios('effort', PI.EFFORTS, s.effort, (v, l, sm) => `${bars(v, v)}${esc(l)}<small>${esc(sm)}</small>`)}</div></div>
+    <div class="group"><h3 class="lbl">Swearing</h3><div class="grid3">${radios('swear', PI.SWEARS, s.swear || 0, (v, l, sm) => `${bars(v, v)}${esc(l)}<small>${esc(sm)}</small>`)}</div></div>
+    <div class="toggles">
+      <label class="tog"><input type="checkbox" data-t="emoji"${s.emoji ? ' checked' : ''}><span>Emoji</span></label>
+      <label class="tog"><input type="checkbox" data-t="sorry"${s.sorry ? ' checked' : ''}><span>“Sorry, just seen this”</span></label>
+      <label class="tog"><input type="checkbox" data-t="kiss"${s.kiss ? ' checked' : ''}><span>Add an x</span></label>
+      <label class="tog"><input type="checkbox" data-t="lower"${s.lower ? ' checked' : ''}><span>all lowercase</span></label>
+    </div></div>`;
+  el.addEventListener('change', e => {
+    const t = e.target;
+    if (t.type === 'radio') { const key = t.name.split('-')[1]; s[key] = key === 'effort' || key === 'swear' ? +t.value : t.value; }
+    if (t.dataset.t) s[t.dataset.t] = t.checked;
+    save(); onChange && onChange();
+  });
+}
+function openTweak() {
+  $('#tweakFor').textContent = `Saved for ${cur.name}. Change them any time.`;
+  renderControls($('#tweakControls'), cur, renderDock);
+  openModal('m-tweak');
+}
 
-// For testing in a browser console
-window.PhonedIn = { detect, buildReplies };
+/* ---------- Profile ---------- */
+function openProfile() { renderProfile(); show('profile'); }
+$('#profBack').onclick = () => { openChat(cur.id); };
+function renderProfile() {
+  const p = cur, st = PI.stats(p);
+  const first = esc(p.name.split(' ')[0]);
+  $('#profile').innerHTML = `
+    <div class="phead"><span class="av" id="pAv"></span><input id="pName" value="${esc(p.name)}" maxlength="30" aria-label="Name"></div>
+    <div class="sec"><h3>${first} is your…</h3><div class="chips" id="pRel">${RELS.map(([v, l]) => `<label class="chip"><input type="radio" name="prel" value="${v}"${p.rel === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div></div>
+    <div class="sec"><h3>Reply settings</h3><div id="pControls"></div></div>
+    <div class="sec"><h3>People and things</h3><p class="fine">Who and what ${first} talks about. Replies use these, like “say hi to Gaz for me”.</p>
+      <div class="items" id="pCards"></div>
+      <div class="addcard"><div class="inline"><input id="cLabel" placeholder="Name, e.g. Gaz" maxlength="30" autocomplete="off"></div>
+        <div class="chips" id="cKinds">${PI.KINDS.map(([k, l], i) => `<label class="chip"><input type="radio" name="ckind" value="${k}"${i === 0 ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>
+        <div class="inline"><input id="cNote" placeholder="A few words, e.g. his brother" maxlength="60" autocomplete="off"><button class="pill solid" type="button" id="cAdd">Add</button></div></div>
+    </div>
+    <div class="sec"><h3>Things to ask about</h3><p class="fine">Write them how you’d say them to ${first}: “your knee”, “the new job”, “Max”.</p>
+      <div class="items" id="pAsk"></div>
+      <div class="inline"><input id="aText" placeholder="e.g. the new job" maxlength="40" autocomplete="off"><button class="pill solid" type="button" id="aAdd">Add</button></div></div>
+    <div class="sec"><h3>Running jokes</h3><p class="fine">Lines you’d actually send. One gets slipped in now and then, marked ★.</p>
+      <div class="items" id="pJokes"></div>
+      <div class="inline"><input id="jText" placeholder="e.g. canal incident 2.0?" maxlength="80" autocomplete="off"><button class="pill solid" type="button" id="jAdd">Add</button></div></div>
+    <details class="sec"><summary>Stats</summary>
+      <div class="statgrid">
+        <div><b>${st.themToday}</b><span>from ${first} today</span></div><div><b>${st.meToday}</b><span>from you today</span></div>
+        <div><b>${st.themWeek}</b><span>from ${first} this week</span></div><div><b>${st.meWeek}</b><span>from you this week</span></div>
+        <div><b>${st.chasersWeek}</b><span>“you there?” this week</span></div><div><b>${st.wordsThem} / ${st.wordsMe}</b><span>average words: theirs / yours</span></div>
+        <div><b>${st.viaApp}</b><span>replies via Phoned In</span></div><div><b>${st.minutesSaved} min</b><span>of your life saved, roughly</span></div>
+      </div></details>
+    <div class="sec"><h3>Chat</h3><div class="row-btns">
+      <button class="pill" type="button" id="pImport">Import from WhatsApp</button>
+      <button class="pill" type="button" id="pClear">Clear messages</button>
+      <button class="pill danger" type="button" id="pDelete">Delete ${first}</button></div></div>`;
+  avatar(p, $('#pAv'));
+  $('#pName').onchange = () => { const v = $('#pName').value.trim(); if (v) { p.name = v; save(); avatar(p, $('#pAv')); } else $('#pName').value = p.name; };
+  $('#pRel').onchange = e => { p.rel = e.target.value; save(); };
+  renderControls($('#pControls'), p);
+  const list = (el, arr, fmt, remove) => {
+    el.innerHTML = arr.length ? arr.map((x, i) => `<div class="item">${fmt(x)}<button type="button" data-i="${i}" aria-label="Remove">×</button></div>`).join('') : '<p class="fine">Nothing yet.</p>';
+    el.querySelectorAll('[data-i]').forEach(b => b.onclick = () => { remove(+b.dataset.i); save(); renderProfile(); });
+  };
+  const kindName = k => (PI.KINDS.find(x => x[0] === k) || ['', 'Thing'])[1];
+  list($('#pCards'), p.cards, c => `<span class="k">${kindName(c.kind)}</span><span class="v">${esc(c.label)}${c.note ? `<small>${esc(c.note)}</small>` : ''}</span>`, i => p.cards.splice(i, 1));
+  list($('#pAsk'), p.askAbout, x => `<span class="v">${esc(x)}</span>`, i => p.askAbout.splice(i, 1));
+  list($('#pJokes'), p.jokes, x => `<span class="v">★ ${esc(x)}</span>`, i => p.jokes.splice(i, 1));
+  $('#cAdd').onclick = () => {
+    const label = $('#cLabel').value.trim(); if (!label) { $('#cLabel').focus(); return; }
+    p.cards.push({ id: uid(), label, kind: (document.querySelector('input[name=ckind]:checked') || {}).value || 'person', note: $('#cNote').value.trim() });
+    p.queue = (p.queue || []).filter(q => q.key !== label.toLowerCase());
+    save(); renderProfile();
+  };
+  const addTo = (input, arr) => { const v = $(input).value.trim(); if (!v) return; arr.push(v); save(); renderProfile(); };
+  $('#aAdd').onclick = () => addTo('#aText', p.askAbout);
+  $('#jAdd').onclick = () => addTo('#jText', p.jokes);
+  ['#cNote', '#aText', '#jText'].forEach((s, k) => $(s).onkeydown = e => { if (e.key === 'Enter') [$('#cAdd'), $('#aAdd'), $('#jAdd')][k].click(); });
+  $('#pImport').onclick = () => openImport(p.id);
+  $('#pClear').onclick = async () => { if (await dialog({ title: `Clear ${first}’s messages?`, text: 'Their profile, notes and jokes are kept.', ok: 'Clear' })) { p.thread = []; save(); renderProfile(); toast('Messages cleared'); } };
+  $('#pDelete').onclick = async () => {
+    if (await dialog({ title: `Delete ${first}?`, text: 'This removes their messages, notes and jokes from this phone.', ok: 'Delete' })) {
+      db.people = db.people.filter(x => x !== p); save(true); cur = null; renderHome(); show('home');
+    }
+  };
+}
+
+/* ---------- New person ---------- */
+$('#newBtn').onclick = () => {
+  $('#newName').value = '';
+  $('#newRel').innerHTML = RELS.map(([v, l], i) => `<label class="chip"><input type="radio" name="nrel" value="${v}"${i === 0 ? ' checked' : ''}><span>${l}</span></label>`).join('');
+  openModal('m-new'); setTimeout(() => $('#newName').focus(), 60);
+};
+$('#newSave').onclick = () => {
+  const name = $('#newName').value.trim(); if (!name) { $('#newName').focus(); return; }
+  const p = newPerson(name, (document.querySelector('input[name=nrel]:checked') || {}).value);
+  db.people.push(p); save(); closeModal('m-new'); openChat(p.id);
+};
+$('#newName').onkeydown = e => { if (e.key === 'Enter') $('#newSave').click(); };
+
+/* ---------- Import ---------- */
+let imp = null;
+function openImport(targetId) {
+  imp = { targetId: targetId || null };
+  $('#imp1').hidden = false; $('#imp2').hidden = true;
+  openModal('m-import');
+}
+$('#importBtn').onclick = () => openImport(null);
+$('#impPick').onclick = () => $('#impFile').click();
+$('#impFile').onchange = async e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const text = await PI.readChatFile(f);
+    const parsed = PI.parseChat(text);
+    if (parsed.msgs.length < 2 || !parsed.names.length) throw new Error('That doesn’t look like a WhatsApp chat export.');
+    imp.parsed = parsed;
+    const names = parsed.names.map(n => n[0]);
+    const youGuess = names.find(n => db.you && n.toLowerCase() === db.you.toLowerCase()) || (names.length === 2 && imp.targetId ? names.find(n => n.toLowerCase() !== person(imp.targetId).name.toLowerCase()) : null);
+    $('#impFound').textContent = `Found ${parsed.msgs.length} messages from ${names.length} ${names.length === 1 ? 'person' : 'people'}.`;
+    $('#impYou').innerHTML = names.map(n => `<label class="chip"><input type="radio" name="iyou" value="${esc(n)}"${n === youGuess ? ' checked' : ''}><span>${esc(n)}</span></label>`).join('');
+    renderImpThem();
+    $('#imp1').hidden = true; $('#imp2').hidden = false;
+  } catch (err) { toast(err.message || 'Couldn’t read that file'); }
+};
+$('#impYou').onchange = renderImpThem;
+function renderImpThem() {
+  const names = imp.parsed.names.map(n => n[0]);
+  const you = (document.querySelector('input[name=iyou]:checked') || {}).value;
+  const others = names.filter(n => n !== you);
+  $('#impThemWrap').hidden = others.length <= 1;
+  $('#impThem').innerHTML = others.map((n, i) => `<label class="chip"><input type="radio" name="ithem" value="${esc(n)}"${i === 0 ? ' checked' : ''}><span>${esc(n)}</span></label>`).join('');
+  const them = others[0] || '';
+  const targets = [['new', `New person: ${them || 'them'}`]].concat(db.people.map(p => [p.id, p.name]));
+  const pre = imp.targetId || (db.people.find(p => p.name.toLowerCase() === them.toLowerCase()) || {}).id || 'new';
+  $('#impTarget').innerHTML = targets.map(([v, l]) => `<label class="chip"><input type="radio" name="itarget" value="${esc(v)}"${v === pre ? ' checked' : ''}><span>${esc(l)}</span></label>`).join('');
+}
+$('#impThem').onchange = () => {
+  const them = (document.querySelector('input[name=ithem]:checked') || {}).value;
+  const first = $('#impTarget').querySelector('input[value=new] + span'); if (first) first.textContent = `New person: ${them}`;
+};
+$('#impGo').onclick = () => {
+  const you = (document.querySelector('input[name=iyou]:checked') || {}).value;
+  if (!you) { toast('Pick which name is you'); return; }
+  const them = (document.querySelector('input[name=ithem]:checked') || {}).value || imp.parsed.names.map(n => n[0]).find(n => n !== you);
+  const target = (document.querySelector('input[name=itarget]:checked') || {}).value || 'new';
+  db.you = you;
+  const msgs = imp.parsed.msgs.filter(m => m.name === you || m.name === them);
+  if ($('#impLearn').checked) {
+    const st = PI.learnStyle(msgs.filter(m => m.name === you).map(m => m.text));
+    if (st) db.style = st;
+  }
+  let p = target === 'new' ? null : person(target);
+  if (!p) { p = newPerson(them || 'Them', 'friend', PI.settingsFromStyle(db.style)); db.people.push(p); }
+  // Merge without duplicates, keep the most recent 300
+  const have = new Set(p.thread.map(m => m.t + '|' + m.text));
+  const add = msgs.filter(m => !have.has(m.t + '|' + m.text)).map(m => ({ id: uid(), from: m.name === you ? 'me' : 'them', text: m.text, t: m.t }));
+  p.thread = p.thread.concat(add).sort((a, b) => a.t - b.t).slice(-MAX_THREAD);
+  const asks = PI.frequentUnknowns(p, msgs.filter(m => m.name === them), [you]);
+  p.queue = (p.queue || []).concat(asks.filter(a => !(p.queue || []).some(q => q.key === a.key)));
+  save(true); closeModal('m-import');
+  openChat(p.id);
+  toast(`Imported ${add.length} messages${asks.length ? `. ${asks.length} names to ask about` : ''}`);
+};
+
+/* ---------- Settings & backup ---------- */
+$('#setBtn').onclick = () => {
+  $('#sYou').value = db.you || ''; $('#sStyle').value = db.manualStyle || '';
+  renderStyleBox();
+  const n = db.people.length, msgs = db.people.reduce((s, p) => s + p.thread.length, 0);
+  $('#backupInfo').textContent = `${n} ${n === 1 ? 'person' : 'people'} and ${msgs} messages are stored on this phone only.`;
+  openModal('m-settings');
+};
+function renderStyleBox() {
+  const box = $('#styleBox');
+  box.innerHTML = db.style
+    ? `<b>How you text</b><span>Learned from ${db.style.n} of your messages: ${esc(PI.styleSummary(db.style))}.</span><div><button class="pill" type="button" id="forgetStyle">Forget this</button></div>`
+    : `<b>How you text</b><span>Import a WhatsApp chat and Phoned In will learn your style from your own messages.</span>`;
+  const f = $('#forgetStyle'); if (f) f.onclick = () => { db.style = null; save(); renderStyleBox(); };
+}
+$('#sYou').onchange = () => { db.you = $('#sYou').value.trim(); save(); };
+$('#sStyle').onchange = () => { db.manualStyle = $('#sStyle').value.trim(); save(); };
+function shareOrDownload(file) {
+  const data = { files: [file], title: 'Phoned In backup' };
+  if (navigator.canShare && navigator.canShare(data)) { navigator.share(data).catch(e => { if (e.name !== 'AbortError') download(file); }); return; }
+  download(file);
+}
+function download(file) {
+  const u = URL.createObjectURL(file), a = document.createElement('a');
+  a.href = u; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
+}
+$('#exportBtn').onclick = () => {
+  db.manualStyle = $('#sStyle').value.trim(); db.you = $('#sYou').value.trim();
+  shareOrDownload(new File([JSON.stringify(Object.assign({ app: 'phoned-in', exported: new Date().toISOString() }, db))], `phoned-in-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' }));
+};
+$('#restoreBtn').onclick = () => $('#restoreFile').click();
+$('#restoreFile').onchange = async e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!d || !Array.isArray(d.people)) throw new Error('bad');
+    if (!(await dialog({ title: 'Restore this backup?', text: `It has ${d.people.length} ${d.people.length === 1 ? 'person' : 'people'}. It replaces everything currently on this phone.`, ok: 'Restore' }))) return;
+    db = { v: 2, people: d.people, style: d.style || null, manualStyle: d.manualStyle || '', you: d.you || '' };
+    db.people.forEach(p => { p.thread = p.thread || []; p.cards = p.cards || []; p.askAbout = p.askAbout || []; p.jokes = p.jokes || []; p.ignore = p.ignore || []; p.queue = p.queue || []; p.seen = p.seen || {}; p.settings = Object.assign(PI.defaultSettings(), p.settings || {}); });
+    save(true); closeModal('m-settings'); renderHome(); show('home'); toast('Backup restored');
+  } catch (err) { toast('That file isn’t a Phoned In backup'); }
+};
+
+/* ---------- Modals ---------- */
+function openModal(id) { $('#' + id).hidden = false; }
+function closeModal(id) { const m = $('#' + id); if (m.hidden) return; m.hidden = true; if (m.onclose) m.onclose(); }
+$$('.modal').forEach(m => m.addEventListener('click', e => { if (e.target.closest('[data-close]')) closeModal(m.id); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { const open = $$('.modal').filter(m => !m.hidden).pop(); if (open) closeModal(open.id); } });
+function dialog({ title, text = '', input = null, ok = 'OK' }) {
+  return new Promise(res => {
+    const m = $('#m-dialog'), inp = $('#dlgInput');
+    $('#dlgTitle').textContent = title; $('#dlgText').textContent = text; $('#dlgText').hidden = !text;
+    inp.hidden = input === null; inp.value = input || ''; $('#dlgOk').textContent = ok;
+    let settled = false;
+    const finish = v => { if (settled) return; settled = true; m.onclose = null; closeModal('m-dialog'); res(v); };
+    m.onclose = () => { if (!settled) { settled = true; res(input === null ? false : null); } };
+    $('#dlgOk').onclick = () => finish(input === null ? true : inp.value);
+    $('#dlgCancel').onclick = () => finish(input === null ? false : null);
+    openModal('m-dialog'); setTimeout(() => (input === null ? $('#dlgOk') : inp).focus(), 60);
+  });
+}
+$('#m-tweak').onclose = () => {};
+
+/* ---------- Start ---------- */
+renderHome(); show('home');
+if (db.people.length && !localStorage.getItem(KEY)) save(true); // first run after v1
+window.PhonedIn = { db: () => db, PI };
 })();

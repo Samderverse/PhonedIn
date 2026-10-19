@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Phoned In</title>
 <meta name="description" content="Quick replies for texts you can't be bothered to answer properly.">
 <meta name="theme-color" content="#f3f1ee" media="(prefers-color-scheme: light)">
@@ -20,90 +20,147 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="app">
-  <header class="top">
-    <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 32 32"><path d="M6 8.5A4.5 4.5 0 0 1 10.5 4h11A4.5 4.5 0 0 1 26 8.5v8a4.5 4.5 0 0 1-4.5 4.5H14l-5.5 4.5V21A4.5 4.5 0 0 1 6 16.5z"/><text x="11.2" y="15.6">z</text><text x="16.4" y="13" class="s">z</text></svg>
+
+<!-- People -->
+<section class="view" id="v-home">
+  <div class="page">
+    <header class="top">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 8.5A4.5 4.5 0 0 1 10.5 4h11A4.5 4.5 0 0 1 26 8.5v8a4.5 4.5 0 0 1-4.5 4.5H14l-5.5 4.5V21A4.5 4.5 0 0 1 6 16.5z"/><text x="11.2" y="15.6">z</text><text x="16.4" y="13" class="s">z</text></svg></div>
+      <div class="title"><h1>Phoned In</h1><p>Replies for when you can't be bothered</p></div>
+      <button class="icon" id="setBtn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+    </header>
+    <div class="home-actions">
+      <button class="go" type="button" id="newBtn">+ New person</button>
+      <button class="pill big" type="button" id="importBtn"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>Import a WhatsApp chat</button>
     </div>
-    <div class="title"><h1>Phoned In</h1><p>Replies for when you can't be bothered</p></div>
-    <button class="icon" id="setBtn" type="button" aria-label="Settings">
-      <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-    </button>
+    <div id="people" class="people"></div>
+  </div>
+</section>
+
+<!-- A person's chat -->
+<section class="view chat" id="v-chat" hidden>
+  <header class="bar">
+    <button class="back" type="button" id="chatBack" aria-label="Back to people">‹</button>
+    <button class="who" type="button" id="chatWho"><span class="av" id="chatAv"></span><span class="who-t"><b id="chatName"></b><small>Profile, notes and jokes</small></span></button>
+    <button class="icon" type="button" id="chatTweak" aria-label="Reply settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   </header>
+  <div class="thread" id="thread" aria-live="polite"></div>
+  <div class="dock" id="dock">
+    <div id="askCard" class="askcard" hidden></div>
+    <div id="tray" class="tray" hidden>
+      <div id="notes" class="notes"></div>
+      <div id="banner" class="banner" hidden></div>
+      <div id="replies" class="replies"></div>
+      <div class="tray-actions">
+        <button class="pill ghost" type="button" id="shuffleBtn"><svg viewBox="0 0 24 24"><path d="M3 7h3.5c4 0 6 10 10 10H21M3 17h3.5c1.6 0 2.8-1.6 3.8-3.6M14 10.2C15 8.4 16 7 17.5 7H21M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>Shuffle</button>
+        <a class="pill ghost" id="gptBtn" href="https://chatgpt.com/" target="_blank" rel="noopener">Ask ChatGPT</a>
+        <button class="pill ghost" type="button" id="ownBtn">I sent my own</button>
+      </div>
+    </div>
+    <div class="composer">
+      <button class="paste" type="button" id="pasteBtn"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/></svg>Paste their message</button>
+      <button class="sq lazy" type="button" id="lazyBtn" aria-label="Lazy mode: paste and copy a minimal reply in one tap"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></button>
+      <button class="sq" type="button" id="typeBtn" aria-label="Type a message" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg></button>
+    </div>
+    <div id="typeRow" class="typerow" hidden>
+      <textarea id="typeBox" rows="2" placeholder="Type or paste a message"></textarea>
+      <div class="row-btns"><button class="pill solid" type="button" id="addThem">Add as theirs</button><button class="pill" type="button" id="addMe">Add as mine</button></div>
+    </div>
+  </div>
+</section>
 
-  <section class="thread" aria-label="Their message">
-    <label class="from" for="msg" id="fromLabel">Their message</label>
-    <div class="bubble in">
-      <textarea id="msg" rows="3" placeholder="Paste what they sent…" autocomplete="off"></textarea>
-    </div>
-    <div class="row-btns">
-      <button class="pill" type="button" id="pasteBtn">
-        <svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/></svg>Paste</button>
-      <button class="pill ghost" type="button" id="clearBtn">Clear</button>
-      <button class="pill ghost" type="button" id="ctxBtn" aria-expanded="false">+ Earlier messages</button>
-    </div>
-    <div id="ctxWrap" hidden>
-      <label class="from" for="ctx">Earlier in the chat (optional, used by ChatGPT)</label>
-      <textarea id="ctx" class="ctx" rows="3" placeholder="Paste a few earlier messages for context"></textarea>
-    </div>
-    <p class="detect" id="detect" aria-live="polite"></p>
-  </section>
+<!-- A person's profile -->
+<section class="view" id="v-profile" hidden>
+  <div class="page">
+    <header class="bar plain"><button class="back" type="button" id="profBack" aria-label="Back to chat">‹</button><h2>Profile</h2></header>
+    <div id="profile" class="profile"></div>
+  </div>
+</section>
 
-  <section class="controls" aria-label="Reply settings">
-    <div class="group">
-      <h2>Tone</h2>
-      <div class="chips" role="radiogroup" aria-label="Tone" id="tones"></div>
-    </div>
-    <div class="group">
-      <h2>Goal</h2>
-      <div class="chips" role="radiogroup" aria-label="Goal" id="goals"></div>
-    </div>
-    <div class="group">
-      <h2>Effort <span class="effort-name" id="effortName"></span></h2>
-      <div class="effort" role="radiogroup" aria-label="Effort" id="efforts"></div>
-    </div>
-    <div class="toggles">
-      <label class="tog"><input type="checkbox" id="tEmoji"><span>Emoji</span></label>
-      <label class="tog"><input type="checkbox" id="tSorry"><span>“Sorry, just seen this”</span></label>
-      <label class="tog"><input type="checkbox" id="tKiss"><span>Add an x</span></label>
-      <label class="tog"><input type="checkbox" id="tLower"><span>all lowercase</span></label>
-    </div>
-  </section>
-
-  <button class="go" type="button" id="goBtn">Get replies</button>
-
-  <section class="results" id="results" aria-live="polite" hidden>
-    <div class="results-head"><h2>Tap one to copy</h2><button class="pill ghost" type="button" id="shuffleBtn">
-      <svg viewBox="0 0 24 24"><path d="M3 7h3.5c4 0 6 10 10 10H21M3 17h3.5c1.6 0 2.8-1.6 3.8-3.6M14 10.2C15 8.4 16 7 17.5 7H21M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>Shuffle</button></div>
-    <div class="banner" id="banner" hidden></div>
-    <div class="replies" id="replies"></div>
-  </section>
-
-  <section class="gpt" aria-labelledby="gptTitle">
-    <h2 id="gptTitle">Needs a proper answer?</h2>
-    <p>Send it to ChatGPT with your tone, goal and style already written in. Works with a free account.</p>
-    <div class="row-btns">
-      <a class="pill solid" id="gptBtn" href="https://chatgpt.com/" target="_blank" rel="noopener">Ask ChatGPT</a>
-      <button class="pill" type="button" id="gptCopy">Copy request</button>
-    </div>
-    <p class="fine">If ChatGPT opens without your message filled in, tap Copy request and paste it into ChatGPT.</p>
-  </section>
-</main>
-
-<div class="modal" id="settings" hidden>
+<!-- Reply settings for this chat -->
+<div class="modal" id="m-tweak" hidden>
   <div class="scrim" data-close></div>
-  <div class="card" role="dialog" aria-modal="true" aria-labelledby="setTitle">
-    <div class="card-head"><h2 id="setTitle">Settings</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
-    <label class="field"><span>Their name</span><input id="sName" maxlength="30" placeholder="Optional, e.g. Dave" autocomplete="off"></label>
-    <p class="fine">Used now and then in replies (“hey Dave”). Everything stays on this phone.</p>
-    <label class="field"><span>How you usually text</span><textarea id="sStyle" rows="3" maxlength="400" placeholder="Optional, e.g. short messages, says ‘mate’ a lot, never uses full stops"></textarea></label>
-    <p class="fine">Only sent to ChatGPT, to make its replies sound like you.</p>
-    <p class="fine">Phoned In v1.0 · Replies are written on your phone. Nothing is sent anywhere unless you tap Ask ChatGPT.</p>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="tweakTitle">
+    <div class="card-head"><h2 id="tweakTitle">Reply settings</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <p class="fine" id="tweakFor"></p>
+    <div id="tweakControls"></div>
   </div>
 </div>
 
-<div id="toast" class="toast" role="status" hidden></div>
+<!-- New person -->
+<div class="modal" id="m-new" hidden>
+  <div class="scrim" data-close></div>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="newTitle">
+    <div class="card-head"><h2 id="newTitle">New person</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <label class="field"><span>Their name</span><input id="newName" maxlength="30" placeholder="e.g. Dave" autocomplete="off"></label>
+    <div class="group"><h3 class="lbl">They're your…</h3><div class="chips" id="newRel"></div></div>
+    <button class="go" type="button" id="newSave">Start chat</button>
+  </div>
+</div>
 
+<!-- Import -->
+<div class="modal" id="m-import" hidden>
+  <div class="scrim" data-close></div>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="impTitle">
+    <div class="card-head"><h2 id="impTitle">Import a WhatsApp chat</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div id="imp1">
+      <ol class="steps">
+        <li>In WhatsApp, open the chat and tap their name at the top.</li>
+        <li>Scroll down, tap <b>Export Chat</b>, then <b>Without Media</b>.</li>
+        <li>Choose <b>Save to Files</b>.</li>
+        <li>Come back here and pick that file.</li>
+      </ol>
+      <button class="go" type="button" id="impPick">Choose the exported file</button>
+      <input type="file" id="impFile" accept=".zip,.txt,application/zip,text/plain" hidden>
+      <p class="fine">The chat is read on this phone and never uploaded. Only the last 300 messages are kept.</p>
+    </div>
+    <div id="imp2" hidden>
+      <p class="hint" id="impFound"></p>
+      <div class="group"><h3 class="lbl">Which one is you?</h3><div class="chips" id="impYou"></div></div>
+      <div class="group" id="impThemWrap" hidden><h3 class="lbl">And who's this chat with?</h3><div class="chips" id="impThem"></div></div>
+      <div class="group"><h3 class="lbl">Add to</h3><div class="chips" id="impTarget"></div></div>
+      <label class="tog"><input type="checkbox" id="impLearn" checked><span>Learn how I text from my messages</span></label>
+      <button class="go" type="button" id="impGo">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings -->
+<div class="modal" id="m-settings" hidden>
+  <div class="scrim" data-close></div>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="card-head"><h2 id="setTitle">Settings</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <label class="field"><span>Your name in WhatsApp</span><input id="sYou" maxlength="40" placeholder="Optional, helps with imports" autocomplete="off"></label>
+    <div class="stylebox" id="styleBox"></div>
+    <label class="field"><span>Anything else about how you text</span><textarea id="sStyle" rows="2" maxlength="400" placeholder="Optional, e.g. says ‘sound’ a lot, never uses full stops"></textarea></label>
+    <p class="fine">Your style is used to tweak suggestions and is included when you ask ChatGPT.</p>
+    <h3 class="lbl">Backup</h3>
+    <p class="fine" id="backupInfo"></p>
+    <div class="row-btns">
+      <button class="pill solid" type="button" id="exportBtn">Export backup</button>
+      <button class="pill" type="button" id="restoreBtn">Restore from file</button>
+      <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+    </div>
+    <p class="fine">Phoned In v2.0 · Everything stays on this phone. Nothing is sent anywhere unless you tap Ask ChatGPT.</p>
+  </div>
+</div>
+
+<!-- Confirm / text input -->
+<div class="modal" id="m-dialog" hidden>
+  <div class="scrim" data-close></div>
+  <div class="card small" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <h2 id="dlgTitle"></h2>
+    <p class="hint" id="dlgText"></p>
+    <textarea id="dlgInput" rows="2" hidden aria-labelledby="dlgTitle"></textarea>
+    <div class="row-btns end"><button class="pill" type="button" id="dlgCancel">Cancel</button><button class="pill solid" type="button" id="dlgOk">OK</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" hidden><span id="toastText"></span><button type="button" id="toastAct" hidden></button></div>
+
+<script src="words.js"></script>
+<script src="engine.js"></script>
+<script src="importer.js"></script>
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
