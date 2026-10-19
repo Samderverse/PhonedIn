@@ -2,7 +2,7 @@
 
 Replies for when you can't be bothered. Paste a text from someone who always wants to chat, pick a tone, and get three ready-made replies to copy back into your messaging app. Free, works offline, and nothing leaves your phone.
 
-**Open it:** https://YOUR-GITHUB-NAME.github.io/PhonedIn/
+**Open it:** https://Samderverse.github.io/PhonedIn/
 
 ## How it works
 
