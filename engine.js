@@ -542,7 +542,7 @@ PI.stats = function (person, at = now()) {
   const w0 = at - 7 * 24 * HOUR;
   const them = t.filter(m => m.from === 'them'), me = t.filter(m => m.from === 'me');
   const words = a => (a.length ? Math.round(a.reduce((s, m) => s + m.text.split(/\s+/).filter(Boolean).length, 0) / a.length * 10) / 10 : 0);
-  const viaApp = me.filter(m => m.via === 'app');
+  const viaApp = me.filter(m => m.via === 'app' || m.via === 'ai');
   return {
     themToday: them.filter(m => m.t >= d0.getTime()).length, meToday: me.filter(m => m.t >= d0.getTime()).length,
     themWeek: them.filter(m => m.t >= w0).length, meWeek: me.filter(m => m.t >= w0).length,

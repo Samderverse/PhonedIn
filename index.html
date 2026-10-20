@@ -48,6 +48,10 @@
   <div class="dock" id="dock">
     <div id="askCard" class="askcard" hidden></div>
     <div id="tray" class="tray" hidden>
+      <div class="modes" id="modeRow" role="group" aria-label="Reply source" hidden>
+        <button type="button" data-m="ai" aria-pressed="true">✨ AI replies</button>
+        <button type="button" data-m="quick" aria-pressed="false">Quick replies</button>
+      </div>
       <div id="notes" class="notes"></div>
       <div id="banner" class="banner" hidden></div>
       <div id="replies" class="replies"></div>
@@ -134,6 +138,23 @@
     <div class="stylebox" id="styleBox"></div>
     <label class="field"><span>Anything else about how you text</span><textarea id="sStyle" rows="2" maxlength="400" placeholder="Optional, e.g. says ‘sound’ a lot, never uses full stops"></textarea></label>
     <p class="fine">Your style is used to tweak suggestions and is included when you ask ChatGPT.</p>
+    <h3 class="lbl">✨ AI replies</h3>
+    <div class="aibox">
+      <label class="tog"><input type="checkbox" id="aiOn"><span>Use Gemini to write replies</span></label>
+      <p class="fine">Gemini reads the recent chat, so replies respond to what was actually said. It’s free with a Google account, within daily limits.</p>
+      <ol class="steps small">
+        <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with Google.</li>
+        <li>Tap <b>Create API key</b>, then copy it.</li>
+        <li>Paste it below and tap <b>Test</b>.</li>
+      </ol>
+      <div class="inline"><input id="aiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Gemini API key" aria-label="Gemini API key"><button class="pill" type="button" id="aiShow">Show</button></div>
+      <div class="chips" role="radiogroup" aria-label="Speed">
+        <label class="chip"><input type="radio" name="aispeed" value="fast"><span>Fast</span></label>
+        <label class="chip"><input type="radio" name="aispeed" value="smart"><span>Smarter</span></label>
+      </div>
+      <div class="row-btns" style="align-items:center"><button class="pill solid" type="button" id="aiTest">Test</button><span class="fine" id="aiStatus" aria-live="polite"></span></div>
+      <p class="fine">Privacy: with this on, the recent messages in a chat, your notes about that person and your texting style are sent to Google to write replies. Google may use free-tier data to improve its products. Quick replies and lazy mode never leave your phone. Your key stays on this phone and isn’t included in backups.</p>
+    </div>
     <h3 class="lbl">Backup</h3>
     <p class="fine" id="backupInfo"></p>
     <div class="row-btns">
@@ -141,7 +162,7 @@
       <button class="pill" type="button" id="restoreBtn">Restore from file</button>
       <input type="file" id="restoreFile" accept=".json,application/json" hidden>
     </div>
-    <p class="fine">Phoned In v2.0 · Everything stays on this phone. Nothing is sent anywhere unless you tap Ask ChatGPT.</p>
+    <p class="fine">Phoned In v2.1 · Everything stays on this phone, except what you choose to send to Gemini or ChatGPT.</p>
   </div>
 </div>
 
@@ -161,6 +182,7 @@
 <script src="words.js"></script>
 <script src="engine.js"></script>
 <script src="importer.js"></script>
+<script src="ai.js"></script>
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));

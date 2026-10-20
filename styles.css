@@ -119,6 +119,19 @@ svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-l
 .typerow{display:flex;flex-direction:column;gap:8px}
 .typerow textarea,.field input,.field textarea,#dlgInput,.inline input{width:100%;border:1px solid var(--hair);border-radius:12px;background:var(--bg);padding:10px 12px;font-size:16px;resize:vertical}
 
+/* AI / Quick switch and the thinking dots */
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;background:var(--surface-2);border-radius:12px}
+.modes button{border:0;background:none;border-radius:9px;padding:7px 0;font-weight:700;font-size:13.5px;color:var(--muted);cursor:pointer}
+.modes button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.thinking{align-self:flex-end;display:flex;gap:6px;background:var(--out);border-radius:20px 20px 6px 20px;padding:14px 18px}
+.thinking span{width:9px;height:9px;border-radius:50%;background:var(--out-ink);opacity:.5;animation:blink 1.2s infinite}
+.thinking span:nth-child(2){animation-delay:.2s}.thinking span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.35;transform:none}40%{opacity:1;transform:translateY(-3px)}}
+.thinking-t{align-self:flex-end}
+.aibox{background:var(--bg);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:9px}
+.steps.small{font-size:14px;gap:4px}
+.steps a{color:var(--out)}
+
 /* "Who's that?" card */
 .askcard{background:var(--out-soft);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:9px}
 .askcard.compact{flex-direction:row;align-items:center;padding:6px 6px 6px 12px;gap:8px}

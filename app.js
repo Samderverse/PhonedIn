@@ -27,6 +27,8 @@ function load() {
 }
 let db = null;
 db = load();
+const AI_DEFAULT = { on: false, key: '', speed: 'fast', model: null };
+db.ai = Object.assign({}, AI_DEFAULT, db.ai || {});
 let saveT;
 function save(now) {
   clearTimeout(saveT);
@@ -126,7 +128,7 @@ function renderThread() {
   for (let i = start; i < t.length; i++) {
     const m = t[i], day = fmtDay(m.t);
     if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
-    html += `<button class="msg ${m.from}" type="button" data-i="${i}">${esc(m.text)}<span class="t">${fmtTime(m.t)}${m.via === 'app' ? ' · Phoned In' : ''}</span></button>`;
+    html += `<button class="msg ${m.from}" type="button" data-i="${i}">${esc(m.text)}<span class="t">${fmtTime(m.t)}${m.via === 'app' || m.via === 'ai' ? ' · Phoned In' : ''}</span></button>`;
     if (m === lastMe && m.hint && Date.now() - m.t < 2 * 36e5 && i === t.length - 1) html += `<div class="hintline">${esc(m.hint)}</div>`;
   }
   el.innerHTML = html;
@@ -166,33 +168,75 @@ function addPasted(text) {
 }
 
 let current = null; // the suggestions on screen
-function renderDock() {
+let mode = 'ai';    // 'ai' (Gemini) or 'quick' (built-in), when AI is set up
+let ai = { key: null, loading: false, replies: null, err: null, ctrl: null };
+// Everything the AI replies depend on; when this changes, ask Gemini again
+function aiKeyFor(p) {
+  return JSON.stringify([p.id, PI.pending(p).map(m => m.id), p.settings, p.cards.length, p.jokes.length, p.askAbout.length, db.ai.speed, db.ai.key.slice(-6)]);
+}
+function startAI(k) {
+  if (ai.ctrl) ai.ctrl.abort();
+  const ctrl = new AbortController(), p = cur;
+  ai = { key: k, loading: true, replies: null, err: null, ctrl };
+  PI.aiReplies(p, db, ctrl.signal).then(r => {
+    if (ai.key !== k) return;
+    ai.loading = false; ai.replies = r.replies; save();
+    if (cur === p) renderDock();
+  }).catch(e => {
+    if (e.name === 'AbortError' || ai.key !== k) return;
+    ai.loading = false; ai.err = e;
+    if (cur === p) renderDock();
+  });
+}
+function renderDock(opts = {}) {
   renderAsk();
   const tray = $('#tray');
   const pend = PI.pending(cur);
-  if (!pend.length) { tray.hidden = true; current = null; return; }
+  if (!pend.length) { tray.hidden = true; current = null; if (ai.ctrl) ai.ctrl.abort(); return; }
   current = PI.suggest(cur, db.style);
   tray.hidden = false;
-  $('#notes').innerHTML = current.notes.map((n, k) => `<div class="note"><span>${esc(n.text)}</span>${n.action ? `<button type="button" data-k="${k}">${esc(n.action.label)}</button>` : ''}</div>`).join('');
-  $('#notes').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { cur.settings.goal = current.notes[+b.dataset.k].action.goal; save(); renderDock(); });
+  const aiOn = PI.aiReady(db), useAI = aiOn && mode === 'ai';
+  $('#modeRow').hidden = !aiOn;
+  $$('#modeRow [data-m]').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === (useAI ? 'ai' : 'quick')));
+  const notes = current.notes.slice();
+  let replies = current.replies, loading = false;
+  if (useAI) {
+    const k = aiKeyFor(cur);
+    if (opts.refresh || ai.key !== k) startAI(k);
+    if (ai.loading) loading = true;
+    else if (ai.replies) replies = ai.replies.map(r => ({ text: r.text, tag: r.tag ? '✨ ' + r.tag : '✨ Gemini', ai: true }));
+    else if (ai.err) notes.unshift({ text: ai.err.message + (ai.err.code === 'limit' || ai.err.code === 'key' ? '' : ' Showing quick replies.'), action: ai.err.code === 'key' ? { settings: true, label: 'Settings' } : { retry: true, label: 'Try again' } });
+  }
+  $('#notes').innerHTML = notes.map((n, k) => `<div class="note"><span>${esc(n.text)}</span>${n.action ? `<button type="button" data-k="${k}">${esc(n.action.label)}</button>` : ''}</div>`).join('');
+  $('#notes').querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    const act = notes[+b.dataset.k].action;
+    if (act.settings) { openSettings(); return; }
+    if (act.retry) { renderDock({ refresh: true }); return; }
+    cur.settings.goal = act.goal; save(); renderDock();
+  });
   const serious = current.a.primary === 'serious';
   $('#banner').hidden = !serious;
-  if (serious) $('#banner').textContent = 'This sounds serious, so these replies ignore your settings, skip the swearing and stay kind. It might deserve a proper chat, or a call.';
-  $('#replies').innerHTML = current.replies.map((r, k) => `<button class="reply" type="button" data-k="${k}">${esc(r.text)}<span class="tag">${esc(r.tag || 'Tap to copy')}</span></button>`).join('');
-  $('#replies').querySelectorAll('.reply').forEach(b => b.onclick = () => useReply(current.replies[+b.dataset.k].text));
+  if (serious) $('#banner').textContent = 'This sounds serious, so replies stay kind with no swearing, whatever your settings. It might deserve a proper chat, or a call.';
+  if (loading) {
+    $('#replies').innerHTML = `<div class="thinking"><span></span><span></span><span></span></div><p class="fine thinking-t">Gemini is reading the chat…</p>`;
+  } else {
+    $('#replies').innerHTML = replies.map((r, k) => `<button class="reply" type="button" data-k="${k}">${esc(r.text)}<span class="tag">${esc(r.tag || 'Tap to copy')}</span></button>`).join('');
+    $('#replies').querySelectorAll('.reply').forEach(b => b.onclick = () => useReply(replies[+b.dataset.k].text, replies[+b.dataset.k].ai));
+  }
   $('#gptBtn').href = 'https://chatgpt.com/?q=' + encodeURIComponent(PI.gptPrompt(cur, db));
 }
-function useReply(text) {
+$$('#modeRow [data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; renderDock(); });
+function useReply(text, fromAI) {
   const d = PI.delay(cur);
   copyText(text).then(ok => {
-    const m = addMessage('me', text, { via: 'app', hint: d.text });
+    const m = addMessage('me', text, { via: fromAI ? 'ai' : 'app', hint: d.text });
     renderThread(); renderDock(); renderHomeLater();
     toast(ok ? 'Copied: paste it in WhatsApp' : 'Saved, but copying failed. Tap the message to copy it.', { label: 'Undo', fn: () => { cur.thread = cur.thread.filter(x => x !== m); save(); renderThread(); renderDock(); } });
   });
 }
 let homeT; function renderHomeLater() { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); }
 
-$('#shuffleBtn').onclick = renderDock;
+$('#shuffleBtn').onclick = () => renderDock({ refresh: PI.aiReady(db) && mode === 'ai' });
 $('#gptBtn').addEventListener('click', () => { copyText(PI.gptPrompt(cur, db)); });
 $('#ownBtn').onclick = async () => {
   const t = await dialog({ title: 'What did you send?', text: 'Paste or type your reply so the chat stays accurate.', input: '', ok: 'Add' });
@@ -461,12 +505,32 @@ $('#impGo').onclick = () => {
 };
 
 /* ---------- Settings & backup ---------- */
-$('#setBtn').onclick = () => {
+$('#setBtn').onclick = () => openSettings();
+function openSettings() {
   $('#sYou').value = db.you || ''; $('#sStyle').value = db.manualStyle || '';
   renderStyleBox();
   const n = db.people.length, msgs = db.people.reduce((s, p) => s + p.thread.length, 0);
   $('#backupInfo').textContent = `${n} ${n === 1 ? 'person' : 'people'} and ${msgs} messages are stored on this phone only.`;
+  $('#aiOn').checked = !!db.ai.on; $('#aiKey').value = db.ai.key || ''; $('#aiKey').type = 'password'; $('#aiShow').textContent = 'Show';
+  $$('input[name=aispeed]').forEach(i => { i.checked = i.value === (db.ai.speed || 'fast'); });
+  $('#aiStatus').textContent = db.ai.key ? (db.ai.model ? `Set up (${db.ai.model})` : '') : '';
   openModal('m-settings');
+}
+$('#m-settings').onclose = () => { if (cur && !$('#v-chat').hidden) renderDock(); };
+$('#aiOn').onchange = () => {
+  db.ai.on = $('#aiOn').checked; save();
+  if (db.ai.on && !db.ai.key) { $('#aiKey').focus(); $('#aiStatus').textContent = 'Paste your key to finish setting up'; }
+};
+$('#aiKey').onchange = () => { db.ai.key = $('#aiKey').value.trim(); db.ai.model = null; if (db.ai.key) db.ai.on = true; $('#aiOn').checked = db.ai.on; save(); $('#aiStatus').textContent = ''; };
+$('#aiShow').onclick = () => { const k = $('#aiKey'); k.type = k.type === 'password' ? 'text' : 'password'; $('#aiShow').textContent = k.type === 'password' ? 'Show' : 'Hide'; };
+$$('input[name=aispeed]').forEach(i => i.onchange = () => { db.ai.speed = i.value; db.ai.model = null; save(); });
+$('#aiTest').onclick = async () => {
+  db.ai.key = $('#aiKey').value.trim(); save();
+  if (!db.ai.key) { $('#aiStatus').textContent = 'Paste your key first'; $('#aiKey').focus(); return; }
+  $('#aiStatus').textContent = 'Testing…'; $('#aiTest').disabled = true;
+  try { const m = await PI.aiTest(db); db.ai.on = true; $('#aiOn').checked = true; save(); $('#aiStatus').textContent = `✓ Working (${m})`; }
+  catch (e) { $('#aiStatus').textContent = e.message || 'That didn’t work'; }
+  finally { $('#aiTest').disabled = false; }
 };
 function renderStyleBox() {
   const box = $('#styleBox');
@@ -488,7 +552,8 @@ function download(file) {
 }
 $('#exportBtn').onclick = () => {
   db.manualStyle = $('#sStyle').value.trim(); db.you = $('#sYou').value.trim();
-  shareOrDownload(new File([JSON.stringify(Object.assign({ app: 'phoned-in', exported: new Date().toISOString() }, db))], `phoned-in-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' }));
+  const copy = Object.assign({ app: 'phoned-in', exported: new Date().toISOString() }, db, { ai: Object.assign({}, db.ai, { key: '' }) }); // your Gemini key stays on this phone
+  shareOrDownload(new File([JSON.stringify(copy)], `phoned-in-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' }));
 };
 $('#restoreBtn').onclick = () => $('#restoreFile').click();
 $('#restoreFile').onchange = async e => {
@@ -498,7 +563,7 @@ $('#restoreFile').onchange = async e => {
     const d = JSON.parse(await f.text());
     if (!d || !Array.isArray(d.people)) throw new Error('bad');
     if (!(await dialog({ title: 'Restore this backup?', text: `It has ${d.people.length} ${d.people.length === 1 ? 'person' : 'people'}. It replaces everything currently on this phone.`, ok: 'Restore' }))) return;
-    db = { v: 2, people: d.people, style: d.style || null, manualStyle: d.manualStyle || '', you: d.you || '' };
+    db = { v: 2, people: d.people, style: d.style || null, manualStyle: d.manualStyle || '', you: d.you || '', ai: Object.assign({}, AI_DEFAULT, d.ai || {}, { key: db.ai.key }) };
     db.people.forEach(p => { p.thread = p.thread || []; p.cards = p.cards || []; p.askAbout = p.askAbout || []; p.jokes = p.jokes || []; p.ignore = p.ignore || []; p.queue = p.queue || []; p.seen = p.seen || {}; p.settings = Object.assign(PI.defaultSettings(), p.settings || {}); });
     save(true); closeModal('m-settings'); renderHome(); show('home'); toast('Backup restored');
   } catch (err) { toast('That file isn’t a Phoned In backup'); }
